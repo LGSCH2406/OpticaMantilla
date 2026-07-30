@@ -1,1 +1,170 @@
+/* ==========================================================================
+   ESTILOS MINIMALISTAS Y MODERNOS - ÓPTICA MANTILLA
+   ========================================================================== */
 
+/* --- 1. VARIABLES DE COLORES (PALETA MODERNA) --- */
+:root {
+    --primary-color: #0ea5e9;       /* Azul Cielo Moderno */
+    --primary-hover: #0284c7;
+    --success-color: #10b981;       /* Verde Menta */
+    --success-hover: #059669;
+    --danger-color: #ef4444;        /* Rojo Suave */
+    --text-dark: #1e293b;
+    --text-muted: #64748b;
+    --bg-body: #f8fafc;
+    --card-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03);
+    --border-color: #e2e8f0;
+}
+
+/* --- 2. ESTILOS GLOBALES --- */
+body {
+    background-color: var(--bg-body) !important;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    color: var(--text-dark);
+}
+
+/* --- 3. TARJETAS Y CONTENEDORES (MINIMALISTAS) --- */
+.card, .modal-content {
+    border: none !important;
+    border-radius: 16px !important;
+    box-shadow: var(--card-shadow) !important;
+    background: #ffffff !important;
+}
+
+.card-header, .modal-header {
+    background: transparent !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    padding: 1.25rem 1.5rem !important;
+}
+
+.card-body, .modal-body {
+    padding: 1.5rem !important;
+}
+
+/* --- 4. INPUTS Y FORMULARIOS --- */
+.form-control, .form-select, .input-group-text {
+    border: 1px solid var(--border-color) !important;
+    border-radius: 10px !important;
+    background-color: #ffffff !important;
+    transition: all 0.2s ease;
+    box-shadow: none !important;
+    color: var(--text-dark);
+}
+
+.form-control:focus, .form-select:focus {
+    border-color: var(--primary-color) !important;
+    box-shadow: 0 0 0 3px rgba(14, 165, 233, 0.15) !important;
+}
+
+.input-group-text {
+    background-color: #f8fafc !important;
+    border-right: none !important;
+    color: var(--text-muted) !important;
+}
+
+/* --- 5. BOTONES --- */
+.btn {
+    border-radius: 10px !important;
+    font-weight: 600 !important;
+    padding: 0.6rem 1.25rem !important;
+    transition: all 0.2s ease;
+}
+
+.btn-primary {
+    background-color: var(--primary-color) !important;
+    border-color: var(--primary-color) !important;
+    color: #fff !important;
+}
+.btn-primary:hover {
+    background-color: var(--primary-hover) !important;
+    transform: translateY(-1px);
+}
+
+.btn-success {
+    background-color: var(--success-color) !important;
+    border-color: var(--success-color) !important;
+    color: #fff !important;
+}
+.btn-success:hover {
+    background-color: var(--success-hover) !important;
+    transform: translateY(-1px);
+}
+
+.btn-outline-primary {
+    border-color: var(--primary-color) !important;
+    color: var(--primary-color) !important;
+}
+.btn-outline-primary:hover {
+    background-color: var(--primary-color) !important;
+    color: #fff !important;
+}
+
+.btn-outline-danger {
+    border-color: var(--danger-color) !important;
+    color: var(--danger-color) !important;
+}
+.btn-outline-danger:hover {
+    background-color: var(--danger-color) !important;
+    color: #fff !important;
+}
+
+/* --- 6. TABLAS --- */
+.table {
+    --bs-table-hover-bg: #f8fafc;
+    border-color: var(--border-color) !important;
+}
+
+.table thead th {
+    background-color: #f8fafc !important;
+    border-bottom: 1px solid var(--border-color) !important;
+    color: var(--text-muted);
+    font-weight: 600;
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+}
+
+.table td, .table th {
+    padding: 1rem 0.75rem !important;
+    vertical-align: middle;
+}
+
+/* --- 7. BADGES (ETIQUETAS DE ESTADO) --- */
+.badge {
+    border-radius: 8px !important;
+    font-weight: 500 !important;
+    padding: 0.35rem 0.65rem !important;
+}
+
+.text-bg-success { background-color: #dcfce7 !important; color: #16a34a !important; }
+.text-bg-warning { background-color: #fef3c7 !important; color: #d97706 !important; }
+.text-bg-danger  { background-color: #fee2e2 !important; color: #dc2626 !important; }
+.text-bg-secondary { background-color: #f1f5f9 !important; color: #64748b !important; }
+
+/* --- 8. TÍTULOS Y TEXTOS --- */
+h1, h2, h3, h4, h5, h6 {
+    color: var(--text-dark);
+    letter-spacing: -0.02em;
+}
+
+.text-muted {
+    color: var(--text-muted) !important;
+}
+
+/* --- 9. MODALES --- */
+.modal-backdrop {
+    background-color: rgba(15, 23, 42, 0.4) !important;
+    backdrop-filter: blur(4px); /* Efecto de desenfoque moderno */
+}
+
+/* --- 10. LISTAS DESPLEGABLES (BUSCADOR DE VENTAS) --- */
+.list-group-item {
+    border: none !important;
+    border-bottom: 1px solid var(--border-color) !important;
+}
+.list-group-item:last-child {
+    border-bottom: none !important;
+}
+.list-group-item-action:hover {
+    background-color: #f8fafc !important;
+}
