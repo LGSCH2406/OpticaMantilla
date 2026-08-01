@@ -423,14 +423,11 @@ window.actualizarPrefijoCodigo = function() {
 
     if (!selectCat || !inputCodigo) return;
 
-    // Si estamos editando un producto existente y no se ha cambiado la categoría a propósito, no sobreescribir el código si ya lo tiene completo
     const categoriaSeleccionada = selectCat.value;
     if (!categoriaSeleccionada) return;
 
-    // Tomar las 3 primeras letras en mayúsculas de la categoría seleccionada
     const prefijo = categoriaSeleccionada.trim().substring(0, 3).toUpperCase();
 
-    // Si es un producto nuevo o el código está vacío o no empieza con el prefijo
     if (!edicionOriginal || !inputCodigo.value.startsWith(prefijo)) {
         inputCodigo.value = prefijo + "-";
     }
@@ -493,6 +490,16 @@ function inicializarLogicaInventario() {
                     } else {
                         refInv.child(codigoIngresado).set(datosProducto)
                             .then(() => {
+                                // REGISTRAR PRODUCTO EN HISTORIAL
+                                if (typeof window.registrarAccionHistorial === 'function') {
+                                    const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                                    window.registrarAccionHistorial(
+                                        'producto',
+                                        `Nuevo producto registrado: ${datosProducto.nombre} (Código: ${codigoIngresado})`,
+                                        { nombre: datosProducto.nombre, codigo: codigoIngresado, precio: datosProducto.precio, stock: datosProducto.stock },
+                                        'inventario'
+                                    );
+                                }
                                 mostrarAlertaAlmacen(`Producto <strong>${datosProducto.nombre}</strong> guardado con éxito.`);
                                 formProducto.reset();
                                 cerrarModalProducto();
@@ -511,6 +518,16 @@ function inicializarLogicaInventario() {
                             refInv.child(codigoOriginal).remove().then(() => {
                                 refInv.child(codigoIngresado).set(datosProducto)
                                     .then(() => {
+                                        // REGISTRAR EDICIÓN DE PRODUCTO EN HISTORIAL
+                                        if (typeof window.registrarAccionHistorial === 'function') {
+                                            const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                                            window.registrarAccionHistorial(
+                                                'edicion',
+                                                `Producto editado (código cambiado): ${datosProducto.nombre} (Código: ${codigoIngresado})`,
+                                                { nombre: datosProducto.nombre, codigo: codigoIngresado, codigoAnterior: codigoOriginal },
+                                                'inventario'
+                                            );
+                                        }
                                         mostrarAlertaAlmacen(`Producto actualizado correctamente.`, "success");
                                         formProducto.reset();
                                         cerrarModalProducto();
@@ -522,6 +539,16 @@ function inicializarLogicaInventario() {
                 } else {
                     refInv.child(codigoIngresado).update(datosProducto)
                         .then(() => {
+                            // REGISTRAR EDICIÓN DE PRODUCTO EN HISTORIAL
+                            if (typeof window.registrarAccionHistorial === 'function') {
+                                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                                window.registrarAccionHistorial(
+                                    'edicion',
+                                    `Producto editado: ${datosProducto.nombre} (Código: ${codigoIngresado})`,
+                                    { nombre: datosProducto.nombre, codigo: codigoIngresado, precio: datosProducto.precio, stock: datosProducto.stock },
+                                    'inventario'
+                                );
+                            }
                             mostrarAlertaAlmacen(`Producto actualizado correctamente.`, "success");
                             formProducto.reset();
                             cerrarModalProducto();
@@ -650,7 +677,7 @@ function ejecutarEdicionProducto(codigo) {
     const inputCodigo = document.getElementById('prodCodigo');
     if (inputCodigo) {
         inputCodigo.value = codigo;
-        inputCodigo.removeAttribute('readonly'); // Permitir modificar código si se desea o mantenerlo
+        inputCodigo.removeAttribute('readonly');
     }
 
     document.getElementById('keyProductoEdicionOriginal').value = codigo;
@@ -671,9 +698,21 @@ function ejecutarEliminacionProducto(codigo) {
     const prod = productosAlmacen[codigo];
     if (!refInv || !prod) return;
 
+    const nombreProducto = prod.nombre;
+
     refInv.child(codigo).remove()
         .then(() => {
-            mostrarAlertaAlmacen(`Producto <strong>"${prod.nombre}"</strong> eliminado del almacén.`, "danger");
+            // REGISTRAR ELIMINACIÓN DE PRODUCTO EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'eliminacion',
+                    `Producto eliminado: ${nombreProducto} (Código: ${codigo})`,
+                    { nombre: nombreProducto, codigo: codigo },
+                    'inventario'
+                );
+            }
+            mostrarAlertaAlmacen(`Producto <strong>"${nombreProducto}"</strong> eliminado del almacén.`, "danger");
         })
         .catch((error) => {
             console.error("Error eliminando producto:", error);

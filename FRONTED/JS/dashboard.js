@@ -417,6 +417,17 @@ function ejecutarCierreCajaLogica(cajaRef, caja, totalFinal, gananciaDelDia) {
             cerradoPor: JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}').nombre || 'Sistema'
         }
     }).then(() => {
+        // REGISTRAR CIERRE DE CAJA EN HISTORIAL
+        if (typeof window.registrarAccionHistorial === 'function') {
+            const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+            window.registrarAccionHistorial(
+                'cierre_caja',
+                `Cierre de caja - Total: S/. ${totalFinal.toFixed(2)} - Ganancia: S/. ${gananciaDelDia.toFixed(2)}`,
+                { total: totalFinal, ganancia: gananciaDelDia },
+                'caja'
+            );
+        }
+
         const finanzasRef = firebase.database().ref('finanzasGenerales');
         finanzasRef.transaction((data) => {
             if (data === null) {
@@ -446,9 +457,6 @@ function ejecutarCierreCajaLogica(cajaRef, caja, totalFinal, gananciaDelDia) {
             if (btnContinuar) {
                 btnContinuar.onclick = function() {
                     modalResultado.hide();
-                    // Ya NO se recarga la página (location.reload()) porque eso
-                    // hacía parecer que se cerraba la sesión. Solo refrescamos
-                    // el módulo del dashboard para reflejar que la caja está cerrada.
                     if (typeof cargarModulo === 'function') {
                         cargarModulo();
                     }

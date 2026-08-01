@@ -120,6 +120,17 @@ document.addEventListener('DOMContentLoaded', function() {
                     mostrarConfirmacionApertura(monto);
                     btnAbrirCaja.disabled = false;
                     btnAbrirCaja.innerHTML = textoOriginal;
+
+                    // REGISTRAR APERTURA DE CAJA EN HISTORIAL
+                    if (typeof window.registrarAccionHistorial === 'function') {
+                        const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                        window.registrarAccionHistorial(
+                            'apertura_caja',
+                            `Apertura de caja con S/. ${monto.toFixed(2)} - Usuario: ${usuarioLog.nombre || 'Sistema'}`,
+                            { monto: monto, usuario: usuarioLog.nombre || 'Sistema' },
+                            'caja'
+                        );
+                    }
                 })
                 .catch((error) => {
                     console.error('❌ Error:', error);
@@ -134,12 +145,6 @@ document.addEventListener('DOMContentLoaded', function() {
         if (modalConfirmacion) modalConfirmacion.hide();
         mostrarDashboard();
     });
-    
-    // NOTA: El manejo del clic en btnSalir (y la validación de caja abierta)
-    // se centraliza en auth.js mediante el modal "modalConfirmarCerrarSesion".
-    // Se eliminó el listener duplicado que mostraba el modal
-    // "modalConfirmarCierre" (¿Estás seguro de cerrar caja?) para evitar
-    // que aparecieran dos avisos al intentar cerrar sesión.
 });
 
 function inicializarModales() {
@@ -233,6 +238,23 @@ function ejecutarCierreCaja() {
                 totalTransferenciaFinal: totalTransferencia,
                 totalTarjetaFinal: totalTarjeta
             }).then(() => {
+                // REGISTRAR CIERRE DE CAJA EN HISTORIAL
+                if (typeof window.registrarAccionHistorial === 'function') {
+                    const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                    window.registrarAccionHistorial(
+                        'cierre_caja',
+                        `Cierre de caja - Total: S/. ${montoActual.toFixed(2)} - Ganancia: S/. ${ganancia.toFixed(2)}`,
+                        { 
+                            total: montoActual, 
+                            ganancia: ganancia,
+                            efectivo: totalEfectivo,
+                            yape: totalYape,
+                            transferencia: totalTransferencia,
+                            tarjeta: totalTarjeta
+                        },
+                        'caja'
+                    );
+                }
                 return { montoActual, ganancia, ventas: data.numeroVentas || 0, totalEfectivo, totalYape, totalTransferencia, totalTarjeta };
             });
         })
@@ -289,10 +311,6 @@ function mostrarResultadoCierre(total, ganancia, totalEfectivo, totalYape, total
         
         document.getElementById('btnContinuarCierre').onclick = function() {
             modalResultadoCierre.hide();
-            // Ya NO se cierra la sesión automáticamente al cerrar caja.
-            // El cierre de sesión solo debe ocurrir cuando el usuario
-            // haga clic explícitamente en "Cerrar Sesión" (btnSalir),
-            // el cual ya valida que la caja esté cerrada.
             mostrarDashboard();
         };
     }
@@ -357,5 +375,140 @@ function cargarDashboardFallback() {
         `;
     }
 }
+
+// ==========================================================================
+// CIERRE AUTOMÁTICO DE CAJA A LAS 9 PM
+// ==========================================================================
+
+function iniciarCierreAutomaticoCaja() {
+    console.log('⏰ Sistema de cierre automático iniciado');
+
+    function verificarYCerrarCaja() {
+        const ahora = new Date();
+        const hora = ahora.getHours();
+        const minutos = ahora.getMinutes();
+        const fechaHoy = ahora.toISOString().split('T')[0];
+        const cajaRef = firebase.database().ref('cajas/' + fechaHoy);
+
+        if (hora >= 21) {
+            console.log(`🕒 Son las ${hora}:${minutos} - Verificando caja para cierre automático...`);
+
+            cajaRef.once('value')
+                .then((snapshot) => {
+                    const caja = snapshot.val();
+                    
+                    if (caja && caja.estado === 'abierta') {
+                        console.log('🔒 Caja encontrada abierta - Cerrando automáticamente...');
+
+                        const montoInicial = caja.apertura?.monto || 0;
+                        const totalEfectivo = caja.totalEfectivo || 0;
+                        const totalYape = caja.totalYape || 0;
+                        const totalTransferencia = caja.totalTransferencia || 0;
+                        const totalTarjeta = caja.totalTarjeta || 0;
+                        const totalFinal = totalEfectivo + totalYape + totalTransferencia + totalTarjeta;
+                        const gananciaDelDia = totalFinal - montoInicial;
+
+                        return cajaRef.update({
+                            estado: 'cerrada',
+                            cierre: {
+                                montoFinal: totalFinal,
+                                gananciaDelDia: gananciaDelDia,
+                                fecha: new Date().toISOString(),
+                                cerradoPor: 'Sistema (Cierre Automático)',
+                                cierreAutomatico: true
+                            }
+                        }).then(() => {
+                            const finanzasRef = firebase.database().ref('finanzasGenerales');
+                            return finanzasRef.transaction((data) => {
+                                if (data === null) {
+                                    return { totalAcumulado: totalFinal };
+                                }
+                                data.totalAcumulado = (data.totalAcumulado || 0) + totalFinal;
+                                return data;
+                            });
+                        }).then(() => {
+                            console.log(`✅ Caja cerrada automáticamente a las ${hora}:${minutos}. Total: S/ ${totalFinal.toFixed(2)}`);
+                            
+                            // REGISTRAR CIERRE AUTOMÁTICO EN HISTORIAL
+                            if (typeof window.registrarAccionHistorial === 'function') {
+                                window.registrarAccionHistorial(
+                                    'cierre_caja',
+                                    `Cierre automático de caja - Total: S/. ${totalFinal.toFixed(2)}`,
+                                    { total: totalFinal, ganancia: gananciaDelDia, automatico: true },
+                                    'caja'
+                                );
+                            }
+                            
+                            if (typeof mostrarAlerta === 'function') {
+                                mostrarAlerta('🔒 La caja ha sido cerrada automáticamente a las 9:00 PM.', 'info');
+                            }
+                        });
+                    } else {
+                        console.log('ℹ️ No hay caja abierta para cerrar automáticamente.');
+                    }
+                })
+                .catch((error) => {
+                    console.error('❌ Error al cerrar caja automáticamente:', error);
+                });
+        } else {
+            console.log(`⏳ Aún no es hora de cerrar caja (${hora}:${minutos}). Próxima verificación a las 21:00.`);
+        }
+    }
+
+    setTimeout(() => {
+        verificarYCerrarCaja();
+    }, 5000);
+
+    setInterval(() => {
+        verificarYCerrarCaja();
+    }, 60000);
+
+    function programarCierreExacto() {
+        const ahora = new Date();
+        const hora = ahora.getHours();
+        const minutos = ahora.getMinutes();
+        const segundos = ahora.getSeconds();
+
+        let msHasta21 = 0;
+        
+        if (hora < 21 || (hora === 21 && minutos === 0 && segundos === 0)) {
+            const target = new Date();
+            target.setHours(21, 0, 0, 0);
+            if (hora >= 21) {
+                target.setDate(target.getDate() + 1);
+            }
+            msHasta21 = target.getTime() - ahora.getTime();
+        } else {
+            const target = new Date();
+            target.setDate(target.getDate() + 1);
+            target.setHours(21, 0, 0, 0);
+            msHasta21 = target.getTime() - ahora.getTime();
+        }
+
+        console.log(`⏰ Próximo cierre automático programado en ${Math.floor(msHasta21 / 60000)} minutos (a las 21:00)`);
+
+        setTimeout(() => {
+            console.log('🔔 Ejecutando cierre automático programado a las 21:00');
+            verificarYCerrarCaja();
+            programarCierreExacto();
+        }, msHasta21);
+    }
+
+    programarCierreExacto();
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
+        iniciarCierreAutomaticoCaja();
+    } else {
+        console.log('⏳ Esperando a que Firebase cargue...');
+        const checkFirebase = setInterval(() => {
+            if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
+                clearInterval(checkFirebase);
+                iniciarCierreAutomaticoCaja();
+            }
+        }, 1000);
+    }
+});
 
 console.log('✅ Módulo caja.js cargado correctamente');

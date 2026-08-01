@@ -402,6 +402,16 @@ function inicializarLogicaClientes() {
                     } else {
                         refClientes.child(dniIngresado).set(datosCliente)
                             .then(() => {
+                                // REGISTRAR CLIENTE EN HISTORIAL
+                                if (typeof window.registrarAccionHistorial === 'function') {
+                                    const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                                    window.registrarAccionHistorial(
+                                        'cliente',
+                                        `Nuevo cliente registrado: ${datosCliente.nombre} (DNI: ${dniIngresado})`,
+                                        { nombre: datosCliente.nombre, dni: dniIngresado, telefono: datosCliente.telefono },
+                                        'clientes'
+                                    );
+                                }
                                 mostrarAlertaClientes(`Cliente <strong>${datosCliente.nombre}</strong> guardado con éxito.`);
                                 formCliente.reset();
                                 cerrarModalCliente();
@@ -424,6 +434,16 @@ function inicializarLogicaClientes() {
                             refClientes.child(dniOriginal).remove().then(() => {
                                 refClientes.child(dniIngresado).set(datosCliente)
                                     .then(() => {
+                                        // REGISTRAR EDICIÓN DE CLIENTE EN HISTORIAL
+                                        if (typeof window.registrarAccionHistorial === 'function') {
+                                            const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                                            window.registrarAccionHistorial(
+                                                'edicion',
+                                                `Cliente editado (DNI cambiado): ${datosCliente.nombre} (DNI: ${dniIngresado})`,
+                                                { nombre: datosCliente.nombre, dni: dniIngresado, dniAnterior: dniOriginal },
+                                                'clientes'
+                                            );
+                                        }
                                         mostrarAlertaClientes(`Ficha de <strong>${datosCliente.nombre}</strong> actualizada exitosamente.`, "success");
                                         formCliente.reset();
                                         cerrarModalCliente();
@@ -436,6 +456,16 @@ function inicializarLogicaClientes() {
                     // Actualización normal manteniendo el mismo DNI
                     refClientes.child(dniIngresado).update(datosCliente)
                         .then(() => {
+                            // REGISTRAR EDICIÓN DE CLIENTE EN HISTORIAL
+                            if (typeof window.registrarAccionHistorial === 'function') {
+                                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                                window.registrarAccionHistorial(
+                                    'edicion',
+                                    `Cliente editado: ${datosCliente.nombre} (DNI: ${dniIngresado})`,
+                                    { nombre: datosCliente.nombre, dni: dniIngresado },
+                                    'clientes'
+                                );
+                            }
                             mostrarAlertaClientes(`Ficha de <strong>${datosCliente.nombre}</strong> actualizada exitosamente.`, "success");
                             formCliente.reset();
                             cerrarModalCliente();
@@ -482,7 +512,7 @@ window.prepararFormularioClienteNuevo = function () {
     const inputDni = document.getElementById('cliDni');
     if (inputDni) {
         inputDni.value = "";
-        inputDni.removeAttribute('readonly'); // Permitir escribir el DNI nuevo
+        inputDni.removeAttribute('readonly');
     }
 
     const inputKeyOriginal = document.getElementById('keyClienteEdicionOriginal');
@@ -515,7 +545,7 @@ function ejecutarEdicionCliente(dni) {
     const inputDni = document.getElementById('cliDni');
     if (inputDni) {
         inputDni.value = dni;
-        inputDni.setAttribute('readonly', true); // Bloqueamos el DNI principal en edición para mantener la integridad de la llave
+        inputDni.setAttribute('readonly', true);
     }
 
     document.getElementById('keyClienteEdicionOriginal').value = dni;
@@ -540,9 +570,21 @@ function ejecutarEliminacionCliente(dni) {
     const cliente = clientesAlmacen[dni];
     if (!refClientes || !cliente) return;
 
+    const nombreCliente = cliente.nombre;
+
     refClientes.child(dni).remove()
         .then(() => {
-            mostrarAlertaClientes(`Registro de <strong>"${cliente.nombre}"</strong> (DNI: ${dni}) eliminado permanentemente.`, "danger");
+            // REGISTRAR ELIMINACIÓN DE CLIENTE EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'eliminacion',
+                    `Cliente eliminado: ${nombreCliente} (DNI: ${dni})`,
+                    { nombre: nombreCliente, dni: dni },
+                    'clientes'
+                );
+            }
+            mostrarAlertaClientes(`Registro de <strong>"${nombreCliente}"</strong> (DNI: ${dni}) eliminado permanentemente.`, "danger");
         })
         .catch((error) => {
             console.error("Error al eliminar cliente:", error);

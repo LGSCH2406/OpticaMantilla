@@ -1142,14 +1142,29 @@ function procesarCobroVenta() {
             const montoACobrar = esAdelanto ? montoAdelantado : totalVenta;
             let tipoPagoParaCaja = obtenerKeyMetodoPago(metodo);
 
-            console.log('💰 Actualizando caja - Método:', metodo, 'Monto:', montoACobrar, 'Tipo:', tipoPagoParaCaja);
-
             if (typeof window.actualizarCajaConVenta === 'function') {
                 window.actualizarCajaConVenta(montoACobrar, tipoPagoParaCaja);
             } else if (typeof actualizarCajaConVenta === 'function') {
                 actualizarCajaConVenta(montoACobrar, tipoPagoParaCaja);
             } else {
                 console.warn('⚠️ Función actualizarCajaConVenta no encontrada');
+            }
+
+            // REGISTRAR VENTA EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'venta',
+                    `Nueva venta registrada - Orden: ${nuevaVenta.numeroOrden} - Cliente: ${nombre} - Total: S/. ${totalVenta.toFixed(2)}`,
+                    { 
+                        numeroOrden: nuevaVenta.numeroOrden, 
+                        cliente: nombre, 
+                        total: totalVenta, 
+                        metodo: metodo,
+                        items: nuevaVenta.items.length 
+                    },
+                    'ventas'
+                );
             }
 
             if (esAdelanto) {
@@ -1553,6 +1568,24 @@ function procesarCambioProductoFinal() {
                     window.actualizarCajaConVenta(diferencia * cantidadDevuelta, tipoCaja);
                 }
             }
+
+            // REGISTRAR CAMBIO EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'cambio',
+                    `Cambio de producto - Orden original: ${ventaOriginal.numeroOrden} - Cliente: ${ventaOriginal.nombreCliente} - Devuelto: ${nombreProdDevuelto} - Nuevo: ${prodNuevo.nombre}`,
+                    { 
+                        ventaOriginal: ventaOriginal.numeroOrden, 
+                        cliente: ventaOriginal.nombreCliente,
+                        productoDevuelto: nombreProdDevuelto,
+                        productoNuevo: prodNuevo.nombre,
+                        diferencia: diferencia
+                    },
+                    'ventas'
+                );
+            }
+
             mostrarAlertaVentas(`¡Cambio procesado con éxito! El producto devuelto reingresó al stock y el nuevo producto salió registrado como venta.`, "success");
             cambiarVistaVentas('historial');
         })
@@ -1675,15 +1708,11 @@ function ejecutarEliminacionVenta(idVenta) {
     const fechaCaja = venta.fecha || new Date().toISOString().split('T')[0];
     const cajaRef = firebase.database().ref('cajas/' + fechaCaja);
     
-    // Determinar qué campo actualizar
     let campoActualizar = 'totalEfectivo';
     if (metodoKey === 'yape') campoActualizar = 'totalYape';
     else if (metodoKey === 'transferencia') campoActualizar = 'totalTransferencia';
     else if (metodoKey === 'tarjeta') campoActualizar = 'totalTarjeta';
 
-    console.log(`💰 Revertiendo caja - Restando ${montoTotal} de ${campoActualizar}`);
-
-    // Primero actualizamos la caja restando el monto
     cajaRef.transaction((data) => {
         if (data === null) return null;
         if (data[campoActualizar] !== undefined) {
@@ -1691,9 +1720,18 @@ function ejecutarEliminacionVenta(idVenta) {
         }
         return data;
     }).then(() => {
-        // Después de actualizar la caja, eliminamos la venta y revertimos stock
         return refRaiz.update(actualizaciones);
     }).then(() => {
+        // REGISTRAR ELIMINACIÓN EN HISTORIAL
+        if (typeof window.registrarAccionHistorial === 'function') {
+            const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+            window.registrarAccionHistorial(
+                'eliminacion',
+                `Venta eliminada - Orden: ${venta.numeroOrden} - Cliente: ${venta.nombreCliente} - Total: S/. ${venta.total.toFixed(2)}`,
+                { numeroOrden: venta.numeroOrden, cliente: venta.nombreCliente, total: venta.total },
+                'ventas'
+            );
+        }
         mostrarAlertaVentas(`✅ Venta eliminada. Stock revertido y caja actualizada (se descontaron S/. ${montoTotal.toFixed(2)} de ${campoActualizar}).`, "success");
     }).catch((err) => { 
         console.error("Error al eliminar venta:", err); 
@@ -1846,6 +1884,16 @@ function actualizarVentaExistente() {
 
     refVentas.child(idVentaEnEdicion).update(ventaActualizada)
         .then(() => {
+            // REGISTRAR EDICIÓN EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'edicion',
+                    `Venta editada - Orden: ${ventaActualizada.numeroOrden} - Cliente: ${nombre} - Total: S/. ${totalVenta.toFixed(2)}`,
+                    { numeroOrden: ventaActualizada.numeroOrden, cliente: nombre, total: totalVenta },
+                    'ventas'
+                );
+            }
             mostrarAlertaVentas(`Venta #${numOrdenInput} actualizada correctamente.`, "success");
             if (btnActualizar) {
                 btnActualizar.innerHTML = `<i class="bi bi-check-circle-fill me-2"></i> Confirmar y Cobrar Venta`;

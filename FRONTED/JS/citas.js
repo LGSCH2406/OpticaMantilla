@@ -293,13 +293,11 @@ window.buscarClienteCitaInput = function() {
     const lista = document.getElementById('listaResultadosClienteCita');
     const texto = input.value.trim().toLowerCase();
 
-    // Si ya había un paciente seleccionado y el texto no cambió, no reabrir la búsqueda
     if (document.getElementById('citaClienteKey').value && input.dataset.nombreSeleccionado === input.value) {
         lista.style.display = 'none';
         return;
     }
 
-    // Si el usuario edita el texto después de haber seleccionado, se invalida la selección previa
     if (document.getElementById('citaClienteKey').value) {
         document.getElementById('citaClienteKey').value = '';
         document.getElementById('citaDniCliente').value = '';
@@ -316,7 +314,7 @@ window.buscarClienteCitaInput = function() {
     const coincidencias = Object.keys(clientesAlmacenCitas).filter(key => {
         const c = clientesAlmacenCitas[key];
         const nombre = (c.nombre || '').toLowerCase();
-        const dni = key.toLowerCase(); // el DNI es la key del nodo, no una propiedad c.dni
+        const dni = key.toLowerCase();
         return nombre.includes(texto) || dni.includes(texto);
     }).slice(0, 8);
 
@@ -346,7 +344,7 @@ window.seleccionarClienteBuscado = function(key) {
     if (!cliente) return;
 
     document.getElementById('citaClienteKey').value = key;
-    document.getElementById('citaDniCliente').value = key; // el DNI es la key del cliente
+    document.getElementById('citaDniCliente').value = key;
     document.getElementById('citaNombrePaciente').value = cliente.nombre || '';
 
     const input = document.getElementById('buscadorClienteCita');
@@ -497,7 +495,6 @@ window.abrirModalNuevaCita = function() {
     document.getElementById('btnLimpiarClienteCita').style.display = 'none';
     document.getElementById('listaResultadosClienteCita').style.display = 'none';
 
-    // Refrescar lista de clientes en memoria por si se agregó uno recientemente
     cargarClientesEnSelectorCitas();
 
     const hoy = new Date().toISOString().split('T')[0];
@@ -543,15 +540,46 @@ window.guardarCita = function(event) {
     if (!ref) return;
 
     if (key) {
+        // EDITAR CITA
+        const citaAnterior = citasAlmacen[key];
         ref.child(key).update(nuevaCita).then(() => {
+            // REGISTRAR EDICIÓN DE CITA EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'edicion',
+                    `Cita editada - Paciente: ${nombrePaciente} - Fecha: ${fecha} - Motivo: ${motivo}`,
+                    { 
+                        paciente: nombrePaciente, 
+                        fecha: fecha, 
+                        hora: hora, 
+                        motivo: motivo, 
+                        estado: estado,
+                        fechaAnterior: citaAnterior?.fecha,
+                        motivoAnterior: citaAnterior?.motivo
+                    },
+                    'citas'
+                );
+            }
             mostrarAlertaCitas("Cita actualizada exitosamente.", "success");
             bootstrap.Modal.getInstance(document.getElementById('modalNuevaCita')).hide();
         }).catch(err => {
             mostrarAlertaCitas("Error al actualizar la cita.", "danger");
         });
     } else {
+        // NUEVA CITA
         nuevaCita.creadoEn = new Date().toISOString();
         ref.push(nuevaCita).then(() => {
+            // REGISTRAR NUEVA CITA EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'cita',
+                    `Nueva cita agendada - Paciente: ${nombrePaciente} - Fecha: ${fecha} - Motivo: ${motivo}`,
+                    { paciente: nombrePaciente, fecha: fecha, hora: hora, motivo: motivo, estado: estado },
+                    'citas'
+                );
+            }
             mostrarAlertaCitas("Cita agendada correctamente.", "success");
             bootstrap.Modal.getInstance(document.getElementById('modalNuevaCita')).hide();
         }).catch(err => {
@@ -561,7 +589,6 @@ window.guardarCita = function(event) {
 };
 
 // Cargar datos en el modal para editar
-// Pide la clave de seguridad antes de permitir editar una cita
 window.solicitarEditarCita = function(key) {
     accionSeguridadPendienteCitas = { tipo: 'editar', key };
     document.getElementById('inputClaveSeguridadCitas').value = '';
@@ -572,7 +599,6 @@ window.solicitarEditarCita = function(key) {
     }
 };
 
-// Abre el modal de edición ya con la clave validada
 function abrirModalEdicionCita(key) {
     const c = citasAlmacen[key];
     if (!c) return;
@@ -593,7 +619,7 @@ function abrirModalEdicionCita(key) {
     const finalizarCargaCliente = () => {
         let matchKey = '';
         if (c.dniCliente && clientesAlmacenCitas[c.dniCliente]) {
-            matchKey = c.dniCliente; // el DNI guardado en la cita es directamente la key del cliente
+            matchKey = c.dniCliente;
         }
 
         const buscador = document.getElementById('buscadorClienteCita');
@@ -619,7 +645,7 @@ function abrirModalEdicionCita(key) {
         const modalInstance = bootstrap.Modal.getOrCreateInstance(modalElement);
         modalInstance.show();
     }
-};
+}
 
 // Autorización de Seguridad para Eliminar Cita
 window.solicitarEliminarCita = function(key) {
@@ -647,8 +673,19 @@ window.verificarClaveSeguridadCitas = function() {
             if (tipo === 'editar') {
                 abrirModalEdicionCita(key);
             } else if (tipo === 'eliminar') {
+                const cita = citasAlmacen[key];
                 const ref = obtenerReferenciaCitas();
                 ref.child(key).remove().then(() => {
+                    // REGISTRAR ELIMINACIÓN DE CITA EN HISTORIAL
+                    if (typeof window.registrarAccionHistorial === 'function') {
+                        const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                        window.registrarAccionHistorial(
+                            'eliminacion',
+                            `Cita eliminada - Paciente: ${cita?.nombrePaciente || 'N/A'} - Fecha: ${cita?.fecha || 'N/A'}`,
+                            { paciente: cita?.nombrePaciente, fecha: cita?.fecha, motivo: cita?.motivo },
+                            'citas'
+                        );
+                    }
                     mostrarAlertaCitas("Cita eliminada de la agenda.", "danger");
                 }).catch(err => {
                     mostrarAlertaCitas("Error al eliminar la cita de Firebase.", "danger");
@@ -665,7 +702,6 @@ window.verificarClaveSeguridadCitas = function() {
 // CAMBIO DE ESTADO DE CITA (con confirmación Bootstrap, sin clave de seguridad)
 // ==========================================================================
 
-// Se dispara al cambiar el <select> de estado en la tabla; pide confirmación antes de guardar
 window.solicitarCambioEstadoCita = function(key, selectEl) {
     const nuevoEstado = selectEl.value;
     const estadoAnterior = selectEl.dataset.estadoAnterior;
@@ -682,7 +718,6 @@ window.solicitarCambioEstadoCita = function(key, selectEl) {
     const modalInstance = bootstrap.Modal.getOrCreateInstance(modalEl);
     modalInstance.show();
 
-    // Si el usuario cierra el modal sin confirmar (Cancelar, X, clic afuera), revertimos el select
     modalEl.addEventListener('hidden.bs.modal', revertirEstadoSiNoConfirmado, { once: true });
 };
 
@@ -693,19 +728,29 @@ function revertirEstadoSiNoConfirmado() {
     }
 }
 
-// Se ejecuta al presionar "Sí, confirmar" en el modal
 window.confirmarCambioEstadoCita = function() {
     if (!cambioEstadoPendiente) return;
 
     const { key, nuevoEstado, selectEl, estadoAnterior } = cambioEstadoPendiente;
-    cambioEstadoPendiente = null; // se limpia antes de cerrar el modal para que el listener "hidden" no revierta el cambio
+    cambioEstadoPendiente = null;
 
     const ref = obtenerReferenciaCitas();
     if (ref) {
+        const cita = citasAlmacen[key];
         ref.child(key).update({
             estado: nuevoEstado,
             actualizadoEn: new Date().toISOString()
         }).then(() => {
+            // REGISTRAR CAMBIO DE ESTADO EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'edicion',
+                    `Cambio de estado de cita - Paciente: ${cita?.nombrePaciente || 'N/A'} - Nuevo estado: ${nuevoEstado}`,
+                    { paciente: cita?.nombrePaciente, estadoAnterior: estadoAnterior, nuevoEstado: nuevoEstado },
+                    'citas'
+                );
+            }
             mostrarAlertaCitas("Estado de la cita actualizado correctamente.", "success");
         }).catch(err => {
             mostrarAlertaCitas("Error al actualizar el estado de la cita.", "danger");

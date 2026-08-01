@@ -879,6 +879,16 @@ function guardarUsuario() {
 
         refUsuarios.child(uidOriginal).update(datosUsuario)
             .then(() => {
+                // REGISTRAR EDICIÓN DE USUARIO EN HISTORIAL
+                if (typeof window.registrarAccionHistorial === 'function') {
+                    const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                    window.registrarAccionHistorial(
+                        'edicion',
+                        `Usuario editado: ${nombre} (${email})`,
+                        { nombre: nombre, email: email, rol: rol },
+                        'usuarios'
+                    );
+                }
                 mostrarModalUsuarios(`Usuario <strong>${nombre}</strong> actualizado exitosamente.`, "success");
                 document.getElementById('formFichaUsuario').reset();
                 cerrarModalUsuario();
@@ -911,6 +921,16 @@ function guardarUsuario() {
             return refUsuarios.child(uid).set(datosUsuario);
         })
         .then(() => {
+            // REGISTRAR NUEVO USUARIO EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'usuario',
+                    `Nuevo usuario registrado: ${nombre} (${email})`,
+                    { nombre: nombre, email: email, rol: rol },
+                    'usuarios'
+                );
+            }
             mostrarModalUsuarios(`Usuario <strong>${nombre}</strong> registrado exitosamente.`, "success");
             document.getElementById('formFichaUsuario').reset();
             cerrarModalUsuario();
@@ -961,23 +981,19 @@ window.prepararFormularioUsuarioNuevo = function () {
 
 window.solicitarAutorizacionSeguridadUsuarios = function (tipo, uid) {
     if (tipo === 'eliminar') {
-        // Para eliminar: primero pedir clave, luego confirmar, luego eliminar
         mostrarModalConfirmacionSeguridad(
             'Autorización Requerida',
             `Debes ingresar la clave de seguridad para eliminar este usuario.`,
             function() {
-                // Clave correcta - ahora mostramos confirmación
                 const usuario = usuariosAlmacen[uid];
                 if (usuario) {
                     mostrarModalConfirmacionEliminar(uid, usuario.nombre || 'Usuario', function() {
-                        // Confirmado - ejecutar eliminación
                         ejecutarEliminacionUsuario(uid);
                     });
                 }
             }
         );
     } else {
-        // Para editar y toggle: solo pedir clave
         accionSeguridadPendienteUsuarios = { tipo, uid };
 
         mostrarModalConfirmacionSeguridad(
@@ -1051,9 +1067,21 @@ function ejecutarEliminacionUsuario(uid) {
         return;
     }
 
+    const nombreUsuario = usuario.nombre;
+
     refUsuarios.child(uid).remove()
         .then(() => {
-            mostrarModalUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> eliminado del sistema.`, "danger");
+            // REGISTRAR ELIMINACIÓN DE USUARIO EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'eliminacion',
+                    `Usuario eliminado: ${nombreUsuario} (${usuario.email})`,
+                    { nombre: nombreUsuario, email: usuario.email },
+                    'usuarios'
+                );
+            }
+            mostrarModalUsuarios(`Usuario <strong>"${nombreUsuario}"</strong> eliminado del sistema.`, "danger");
         })
         .catch((error) => {
             console.error("Error al eliminar usuario:", error);
@@ -1089,6 +1117,16 @@ function ejecutarToggleUsuario(uid) {
         actualizadoEn: new Date().toISOString()
     })
     .then(() => {
+        // REGISTRAR TOGGLE DE USUARIO EN HISTORIAL
+        if (typeof window.registrarAccionHistorial === 'function') {
+            const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+            window.registrarAccionHistorial(
+                'edicion',
+                `Usuario ${estadoTexto}: ${usuario.nombre} (${usuario.email})`,
+                { nombre: usuario.nombre, email: usuario.email, estado: estadoTexto },
+                'usuarios'
+            );
+        }
         mostrarModalUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> ${estadoTexto} exitosamente.`, "success");
     })
     .catch((error) => {

@@ -46,23 +46,18 @@ document.addEventListener('DOMContentLoaded', () => {
             // Autenticación con Firebase
             firebase.auth().signInWithEmailAndPassword(email, password)
                 .then((userCredential) => {
-                    // Obtener datos adicionales del usuario desde Realtime DB
                     const user = userCredential.user;
-                    
-                    // Verificar si el usuario existe en Realtime DB y está activo
                     const db = firebase.database();
                     return db.ref('usuarios/' + user.uid).once('value')
                         .then((snapshot) => {
                             let usuarioData = snapshot.val();
                             
-                            // Si no existe en Realtime DB, crearlo automáticamente
                             if (!usuarioData) {
-                                // CAMBIO: Si es la primera vez, lo creamos como ADMIN para evitar problemas de permisos
                                 const datosBasicos = {
                                     email: user.email,
                                     nombre: user.displayName || user.email?.split('@')[0] || 'Usuario',
                                     codigo: `MANTILLA-${Date.now().toString().slice(-5)}`,
-                                    rol: 'admin', // Cambiado de 'ventas' a 'admin' para que el dueño tenga acceso total
+                                    rol: 'admin',
                                     activo: true,
                                     creadoEn: new Date().toISOString(),
                                     uid: user.uid
@@ -73,7 +68,6 @@ document.addEventListener('DOMContentLoaded', () => {
                                     });
                             }
                             
-                            // Verificar si el usuario está activo
                             if (usuarioData.activo === false) {
                                 throw new Error('Usuario desactivado. Contacte al administrador.');
                             }
@@ -84,7 +78,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 .then((usuarioData) => {
                     mostrarAlerta(`Bienvenido, ${usuarioData.nombre || 'Usuario'}!`, 'success');
                     
-                    // Guardar sesión con datos completos
                     sessionStorage.setItem('usuarioLogueado', JSON.stringify({
                         email: usuarioData.email,
                         nombre: usuarioData.nombre,
@@ -93,29 +86,34 @@ document.addEventListener('DOMContentLoaded', () => {
                         codigo: usuarioData.codigo
                     }));
 
-                    // Actualizar nombre en la barra de navegación
+                    // REGISTRAR INICIO DE SESIÓN EN HISTORIAL
+                    if (typeof window.registrarAccionHistorial === 'function') {
+                        window.registrarAccionHistorial(
+                            'usuario',
+                            `Inicio de sesión: ${usuarioData.nombre} (${usuarioData.email})`,
+                            { email: usuarioData.email, rol: usuarioData.rol },
+                            'usuarios'
+                        );
+                    }
+
                     const nombreUsuario = document.getElementById('nombreUsuario');
                     if (nombreUsuario) {
                         nombreUsuario.textContent = usuarioData.nombre || 'Usuario';
                     }
 
-                    // Transición de vistas
                     document.getElementById('vistaLogin').classList.add('d-none');
                     document.getElementById('appContainer').classList.remove('d-none');
                     
-                    // Carga inicial del dashboard
                     if (typeof cargarModulo === 'function') {
                         cargarModulo();
                     }
 
-                    // Verificar y mostrar el Modal de Caja si es necesario
                     setTimeout(() => {
                         if (typeof verificarYMostrarAperturaCaja === 'function') {
                             verificarYMostrarAperturaCaja();
                         }
                     }, 500);
 
-                    // Restaurar botón
                     const btnLogin = document.getElementById('btnLogin');
                     btnLogin.innerHTML = textoOriginal;
                     btnLogin.disabled = false;
@@ -138,7 +136,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     
                     mostrarAlerta(mensaje, 'danger');
                     
-                    // Restaurar botón
                     const btnLogin = document.getElementById('btnLogin');
                     btnLogin.innerHTML = textoOriginal;
                     btnLogin.disabled = false;
@@ -146,143 +143,42 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // ==========================================================================
-    // 3. CONTROL DEL BOTÓN SALIR DEL SISTEMA (CON VALIDACIÓN Y CAMBIO DE MODAL)
-    // ==========================================================================
+    // 3. CONTROL DEL BOTÓN SALIR DEL SISTEMA
     const btnSalir = document.getElementById('btnSalir');
     if (btnSalir) {
-        btnSalir.addEventListener('click', async () => {
-            // Verificar el estado de la caja antes de abrir el modal
-            try {
-                const fechaHoy = new Date().toISOString().split('T')[0];
-                const cajaRef = firebase.database().ref('cajas/' + fechaHoy);
-                const snapshot = await cajaRef.once('value');
-                
-                const cajaData = snapshot.val();
-                const cajaAbierta = cajaData && cajaData.estado === 'abierta';
-
-                // Referencias a los elementos del modal de salir
-                const modalElement = document.getElementById('modalConfirmarCerrarSesion');
-                const header = document.getElementById('headerModalSalir');
-                const icono = document.getElementById('iconoModalSalir');
-                const titulo = document.getElementById('tituloModalSalir');
-                const mensaje = document.getElementById('mensajeModalSalir');
-                const btnConfirmar = document.getElementById('btnConfirmarSalir');
-
-                if (cajaAbierta) {
-                    // MODO ADVERTENCIA: La caja está abierta
-                    header.className = 'modal-header border-0 py-4 bg-warning'; // Fondo Naranja
-                    icono.className = 'bi bi-exclamation-triangle-fill text-warning';
-                    icono.style.fontSize = '2.5rem';
-                    titulo.className = 'modal-title text-dark fw-bold';
-                    titulo.innerText = '⚠️ Caja Abierta';
-                    
-                    // Mensaje directo en el cuerpo del modal (Sin alertas externas)
-                    mensaje.innerHTML = `
-                        <div class="p-3 mb-0">
-                            <div class="mb-3">
-                                <i class="bi bi-cash-stack fs-1 text-warning"></i>
-                            </div>
-                            <h5 class="fw-bold">No puedes cerrar sesión</h5>
-                            <p class="text-muted">
-                                Por seguridad, el sistema <strong>no permite cerrar sesión</strong> mientras la caja del día esté abierta.
-                            </p>
-                            <div class="alert alert-warning mb-0 border-0 shadow-sm" style="border-radius: 10px;">
-                                <i class="bi bi-info-circle-fill me-2"></i>
-                                Dirígete al <strong>Dashboard</strong> y haz clic en el botón 
-                                <strong>"Cerrar Caja del Día"</strong> antes de intentar salir.
-                            </div>
-                        </div>
-                    `;
-                    
-                    // Deshabilitar el botón de confirmación
-                    btnConfirmar.disabled = true;
-                    btnConfirmar.className = 'btn btn-secondary px-4 fw-bold opacity-50';
-                    btnConfirmar.innerHTML = 'Caja Abierta';
-
-                    // Al presionar "Cancelar", regresar al Dashboard
-                    const btnCancelarSalir = document.getElementById('btnCancelarSalir');
-                    if (btnCancelarSalir) {
-                        btnCancelarSalir.onclick = function() {
-                            const modalCierreEl = document.getElementById('modalConfirmarCerrarSesion');
-                            const modalCierreInst = bootstrap.Modal.getInstance(modalCierreEl);
-                            if (modalCierreInst) modalCierreInst.hide();
-
-                            if (typeof mostrarDashboard === 'function') {
-                                mostrarDashboard();
-                            }
-                        };
-                    }
-                } else {
-                    // MODO NORMAL: Caja cerrada
-                    header.className = 'modal-header border-0 py-4 bg-danger'; // Fondo Rojo
-                    icono.className = 'bi bi-box-arrow-right text-danger';
-                    icono.style.fontSize = '2.5rem';
-                    titulo.className = 'modal-title text-white fw-bold';
-                    titulo.innerText = 'Cerrar Sesión';
-                    mensaje.innerHTML = '¿Está seguro que desea cerrar la sesión actual?';
-                    
-                    // Habilitar el botón de confirmación
-                    btnConfirmar.disabled = false;
-                    btnConfirmar.className = 'btn btn-danger px-4 fw-bold';
-                    btnConfirmar.innerHTML = '<i class="bi bi-check-lg me-1"></i> Sí, Cerrar Sesión';
-
-                    // Restablecer el botón Cancelar a su comportamiento normal
-                    // (solo cerrar el modal, sin redirigir al dashboard)
-                    const btnCancelarSalir = document.getElementById('btnCancelarSalir');
-                    if (btnCancelarSalir) {
-                        btnCancelarSalir.onclick = null;
-                    }
-                }
-
-                // Abrir el modal
-                const modalCierre = new bootstrap.Modal(modalElement, {
-                    backdrop: 'static',
-                    keyboard: false
-                });
-                modalCierre.show();
-
-            } catch (error) {
-                console.error("Error al verificar la caja:", error);
-                // Solo mostramos alerta si hay un error real de conexión, no si la caja está abierta
-                mostrarAlerta('Error al verificar el estado de la caja. Intente nuevamente.', 'danger');
+        btnSalir.addEventListener('click', function() {
+            const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+            
+            // REGISTRAR CIERRE DE SESIÓN EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                window.registrarAccionHistorial(
+                    'usuario',
+                    `Cierre de sesión: ${usuarioLog.nombre || 'Usuario'}`,
+                    { email: usuarioLog.email },
+                    'usuarios'
+                );
             }
+
+            firebase.auth().signOut().then(() => {
+                sessionStorage.removeItem('usuarioLogueado');
+                
+                const modales = document.querySelectorAll('.modal.show');
+                modales.forEach(modal => {
+                    const instancia = bootstrap.Modal.getInstance(modal);
+                    if (instancia) instancia.hide();
+                });
+                
+                window.location.reload();
+            }).catch((error) => {
+                console.error("Error al cerrar sesión:", error);
+                mostrarAlerta('Error al cerrar sesión.', 'danger');
+            });
         });
     }
-
-    // Configurar el botón "Sí, Cerrar Sesión" dentro del modal confirmación
-    document.getElementById('btnConfirmarSalir').addEventListener('click', function() {
-        // Verificamos que el botón no esté deshabilitado
-        if (this.disabled) return;
-
-        // Cerrar el modal de confirmación primero
-        const modalCierreEl = document.getElementById('modalConfirmarCerrarSesion');
-        const modalCierre = bootstrap.Modal.getInstance(modalCierreEl);
-        if(modalCierre) modalCierre.hide();
-
-        // Ejecutar el cierre de sesión de Firebase
-        firebase.auth().signOut().then(() => {
-            sessionStorage.removeItem('usuarioLogueado');
-            
-            // Cerrar cualquier otro modal abierto (como el de caja, etc.)
-            const modales = document.querySelectorAll('.modal.show');
-            modales.forEach(modal => {
-                const instancia = bootstrap.Modal.getInstance(modal);
-                if (instancia) instancia.hide();
-            });
-            
-            // Recargar la página para volver a la pantalla de Login
-            window.location.reload();
-        }).catch((error) => {
-            console.error("Error al cerrar sesión:", error);
-            mostrarAlerta('Error al cerrar sesión.', 'danger');
-        });
-    });
 
     // 4. Verificar sesión al cargar la página
     firebase.auth().onAuthStateChanged((user) => {
         if (user) {
-            // Usuario ya logueado, verificar datos
             const db = firebase.database();
             db.ref('usuarios/' + user.uid).once('value')
                 .then((snapshot) => {
@@ -296,13 +192,11 @@ document.addEventListener('DOMContentLoaded', () => {
                             codigo: usuarioData.codigo
                         }));
                         
-                        // Actualizar nombre en barra de navegación
                         const nombreUsuario = document.getElementById('nombreUsuario');
                         if (nombreUsuario) {
                             nombreUsuario.textContent = usuarioData.nombre || 'Usuario';
                         }
                         
-                        // LLAMADA A LA NUEVA FUNCIÓN PARA OCULTAR/MOSTRAR MENÚ SEGÚN EL ROL
                         aplicarPermisosPorRol();
                     }
                 })
@@ -310,12 +204,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.error("Error al verificar sesión:", error);
                 });
         } else {
-            // No hay usuario logueado
             sessionStorage.removeItem('usuarioLogueado');
         }
     });
 
-    // Función auxiliar para alertas
     function mostrarAlerta(mensaje, tipo) {
         if (!alertContainer) return;
         alertContainer.innerHTML = `
@@ -326,7 +218,6 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `;
         
-        // Auto-cerrar después de 5 segundos
         setTimeout(() => {
             const alert = alertContainer.querySelector('.alert');
             if (alert) {
@@ -339,40 +230,23 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 });
 
-// ==========================================================================
-// NUEVA FUNCIÓN: CONTROL DE PERMISOS POR ROL
-// ==========================================================================
-
 function aplicarPermisosPorRol() {
-    // 1. Obtener los datos del usuario logueado desde sessionStorage
     const usuarioLogueado = JSON.parse(sessionStorage.getItem('usuarioLogueado'));
-
-    // Si no hay usuario logueado, no hacemos nada
     if (!usuarioLogueado) return;
 
-    // 2. Obtener el rol del usuario
-    const rol = usuarioLogueado.rol; // Esto debería ser 'admin', 'ventas', 'optometra', etc.
-    
-    // 3. Elegir qué mostrar según el rol
-    // Si es ADMIN: mostramos el menú de Usuarios quitando la clase oculta
-    // Si NO es ADMIN: Nos aseguramos de que esté oculto (oculto por defecto en HTML)
-    
+    const rol = usuarioLogueado.rol;
     const elementosAdmin = document.querySelectorAll('.solo-admin');
     
     if (rol === 'admin' || rol === 'administrador') {
         elementosAdmin.forEach(el => {
-            el.style.display = 'block'; // Mostrar
+            el.style.display = 'block';
         });
     } else {
         elementosAdmin.forEach(el => {
-            el.style.display = 'none'; // Ocultar
+            el.style.display = 'none';
         });
     }
 }
-
-// ==========================================================================
-// LÓGICA DE APERTURA DE CAJA
-// ==========================================================================
 
 function verificarYMostrarAperturaCaja() {
     const fechaHoy = new Date().toISOString().split('T')[0];
@@ -380,7 +254,6 @@ function verificarYMostrarAperturaCaja() {
 
     cajaRef.once('value').then((snapshot) => {
         if (!snapshot.exists() || snapshot.val().estado === 'cerrada') {
-            // No hay caja abierta hoy. Mostramos el modal.
             const modalElement = document.getElementById('modalAperturaCaja');
             if (modalElement) {
                 const modal = new bootstrap.Modal(modalElement, {
@@ -389,12 +262,10 @@ function verificarYMostrarAperturaCaja() {
                 });
                 modal.show();
                 
-                // Configurar el botón de confirmar apertura
                 document.getElementById('btnConfirmarApertura').onclick = function() {
                     confirmarAperturaCaja(modal);
                 };
                 
-                // Permitir Enter en el input
                 document.getElementById('montoAperturaCaja').addEventListener('keypress', (e) => {
                     if (e.key === 'Enter') {
                         document.getElementById('btnConfirmarApertura').click();
@@ -420,7 +291,6 @@ function confirmarAperturaCaja(modalInstance) {
     const fechaHoy = new Date().toISOString().split('T')[0];
     const cajaRef = firebase.database().ref('cajas/' + fechaHoy);
 
-    // Deshabilitar botón para evitar doble clic
     const btnConfirmar = document.getElementById('btnConfirmarApertura');
     btnConfirmar.disabled = true;
     btnConfirmar.innerHTML = `<span class="spinner-border spinner-border-sm me-2" role="status"></span> Abriendo...`;
@@ -435,17 +305,27 @@ function confirmarAperturaCaja(modalInstance) {
         },
         totalEfectivo: monto,
         totalYape: 0,
+        totalTransferencia: 0,
+        totalTarjeta: 0,
         ventas: [],
         historial: []
     }).then(() => {
         modalInstance.hide();
         
-        // Actualizar el dashboard para que refleje el dinero
+        // REGISTRAR APERTURA DE CAJA EN HISTORIAL
+        if (typeof window.registrarAccionHistorial === 'function') {
+            window.registrarAccionHistorial(
+                'apertura_caja',
+                `Apertura de caja con S/. ${monto.toFixed(2)} - Usuario: ${usuarioLog.nombre || 'Sistema'}`,
+                { monto: monto, usuario: usuarioLog.nombre || 'Sistema' },
+                'caja'
+            );
+        }
+        
         if (typeof actualizarVistaDashboardCaja === 'function') {
             actualizarVistaDashboardCaja();
         }
         
-        // Llenar datos y mostrar directamente el segundo modal estilizado de éxito
         const montoConfirmacion = document.getElementById('montoConfirmacion');
         if (montoConfirmacion) {
             montoConfirmacion.textContent = `S/ ${monto.toFixed(2)}`;
@@ -471,7 +351,6 @@ function confirmarAperturaCaja(modalInstance) {
             });
             modalConf.show();
             
-            // Botón continuar del modal estilizado
             const btnCerrarConf = document.getElementById('btnCerrarConfirmacion');
             if (btnCerrarConf) {
                 btnCerrarConf.onclick = function() {
@@ -480,7 +359,6 @@ function confirmarAperturaCaja(modalInstance) {
             }
         }
 
-        // Guardar en el historial de cierres
         const historialRef = firebase.database().ref('historialCajas/' + fechaHoy);
         historialRef.set({
             tipo: 'apertura',
@@ -493,13 +371,11 @@ function confirmarAperturaCaja(modalInstance) {
         console.error("Error al abrir caja:", err);
         mostrarAlertaLogin("Error al conectar con la base de datos.", "danger");
     }).finally(() => {
-        // Restaurar botón
         btnConfirmar.disabled = false;
         btnConfirmar.innerHTML = '<i class="bi bi-check-lg me-1"></i> Abrir Caja';
     });
 }
 
-// Función auxiliar para mostrar alertas en login (fuera del contenedor de login)
 function mostrarAlertaLogin(mensaje, tipo) {
     const alertContainer = document.getElementById('alertContainer');
     if (!alertContainer) return;

@@ -1,633 +1,1162 @@
 // ==========================================================================
-// MÓDULO DE GASTOS - ÓPTICA MANTILLA (gastos.js)
-// Solo visible y usable por administradores
+// GESTIÓN DE USUARIOS - ÓPTICA MANTILLA (Firebase Auth + Realtime DB)
 // ==========================================================================
 
-// Variable global para el listener de gastos
-let gastosListener = null;
-
 // ==========================================================================
-// FUNCIÓN PRINCIPAL PARA CARGAR EL MÓDULO DE GASTOS
+// FUNCIÓN MODAL PARA MOSTRAR MENSAJES (BOOTSTRAP)
 // ==========================================================================
 
-function cargarModuloGastos() {
-    const contenedor = document.getElementById('contenidoDinamico');
-    if (!contenedor) return;
+function mostrarModalUsuarios(mensaje, tipo = "success", titulo = null) {
+    let icono = "bi-check-circle-fill";
+    let color = "success";
+    let tituloDefault = "Éxito";
+    
+    if (tipo === "danger" || tipo === "error") {
+        icono = "bi-x-circle-fill";
+        color = "danger";
+        tituloDefault = "Error";
+    } else if (tipo === "warning") {
+        icono = "bi-exclamation-triangle-fill";
+        color = "warning";
+        tituloDefault = "Advertencia";
+    } else if (tipo === "info") {
+        icono = "bi-info-circle-fill";
+        color = "info";
+        tituloDefault = "Información";
+    }
+    
+    const tituloFinal = titulo || tituloDefault;
 
-    // Verificar si el usuario es administrador
-    const usuarioData = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
-    const esAdmin = usuarioData.rol === 'admin';
-
-    if (!esAdmin) {
-        contenedor.innerHTML = `
-            <div class="animate__animated animate__fadeIn">
-                <div class="alert alert-danger d-flex align-items-center" role="alert">
-                    <i class="bi bi-shield-lock fs-3 me-3"></i>
-                    <div>
-                        <h5 class="alert-heading fw-bold mb-1">Acceso Denegado</h5>
-                        <p class="mb-0">No tienes permisos para acceder al módulo de Gastos. Solo los administradores pueden ver esta sección.</p>
+    const modalHTML = `
+        <div class="modal fade" id="modalMensajeUsuarios" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+            <div class="modal-dialog modal-dialog-centered modal-sm">
+                <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+                    <div class="modal-header border-0 bg-${color} text-white py-3" style="border-radius: 12px 12px 0 0;">
+                        <h5 class="modal-title fw-bold mx-auto">
+                            <i class="bi ${icono} me-2"></i>
+                            ${tituloFinal}
+                        </h5>
+                    </div>
+                    <div class="modal-body p-4 text-center">
+                        <p class="mb-0 text-dark">${mensaje}</p>
+                    </div>
+                    <div class="modal-footer border-0 bg-light py-3 justify-content-center" style="border-radius: 0 0 12px 12px;">
+                        <button type="button" class="btn btn-${color} px-4 fw-bold" data-bs-dismiss="modal" style="border-radius: 8px;">
+                            Aceptar
+                        </button>
                     </div>
                 </div>
             </div>
+        </div>
+    `;
+
+    const modalExistente = document.getElementById('modalMensajeUsuarios');
+    if (modalExistente) {
+        modalExistente.remove();
+    }
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    const modalElement = document.getElementById('modalMensajeUsuarios');
+    const modalInstance = new bootstrap.Modal(modalElement, {
+        backdrop: 'static',
+        keyboard: false
+    });
+    modalInstance.show();
+
+    modalElement.addEventListener('hidden.bs.modal', function() {
+        setTimeout(() => {
+            modalElement.remove();
+        }, 300);
+    });
+}
+
+// ==========================================================================
+// VALIDACIÓN DE ACCESO (se ejecuta SOLO al entrar al módulo)
+// ==========================================================================
+
+function validarAccesoUsuarios() {
+    const usuarioLogueado = JSON.parse(sessionStorage.getItem('usuarioLogueado'));
+    
+    if (!usuarioLogueado || (usuarioLogueado.rol !== 'admin' && usuarioLogueado.rol !== 'administrador')) {
+        mostrarModalUsuarios("Acceso denegado. No tienes permisos para ver esta sección.", "danger");
+        return false;
+    }
+    return true;
+}
+
+// ==========================================================================
+// VARIABLES GLOBALES
+// ==========================================================================
+
+let usuariosAlmacen = {};
+let rolesAlmacen = ['admin', 'ventas', 'optometra'];
+let accionSeguridadPendienteUsuarios = null;
+const CLAVE_SEGURIDAD_USUARIOS = "24060102";
+const USUARIO_ADMIN_PRINCIPAL = "gus24060102@gmail.com";
+
+// ==========================================================================
+// FUNCIONES DE REFERENCIA
+// ==========================================================================
+
+function obtenerReferenciaUsuarios() {
+    try {
+        if (typeof db !== 'undefined' && db) {
+            return db.ref('usuarios');
+        }
+        if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
+            return firebase.database().ref('usuarios');
+        }
+    } catch (e) {
+        console.error("Error al inicializar la referencia de usuarios en Firebase:", e);
+    }
+    return null;
+}
+
+function obtenerAuth() {
+    try {
+        if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
+            return firebase.auth();
+        }
+    } catch (e) {
+        console.error("Error al obtener Firebase Auth:", e);
+    }
+    return null;
+}
+
+// ==========================================================================
+// ROLES (persistencia local)
+// ==========================================================================
+
+function persistirRoles() {
+    localStorage.setItem('optica_roles_usuarios', JSON.stringify(rolesAlmacen));
+}
+
+function cargarRoles() {
+    const rolesGuardados = localStorage.getItem('optica_roles_usuarios');
+    if (rolesGuardados) {
+        try {
+            rolesAlmacen = JSON.parse(rolesGuardados);
+        } catch (e) {
+            rolesAlmacen = ['admin', 'ventas', 'optometra'];
+        }
+    }
+}
+
+// ==========================================================================
+// MODAL DE CONFIRMACIÓN CON CLAVE DE SEGURIDAD (PARA ACCIONES CRÍTICAS)
+// ==========================================================================
+
+function mostrarModalConfirmacionSeguridad(titulo, mensaje, callbackAceptar) {
+    const modalHTML = `
+        <div class="modal fade" id="modalConfirmacionSeguridad" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+                    <div class="modal-header border-0 bg-warning py-3" style="border-radius: 12px 12px 0 0;">
+                        <h5 class="modal-title fw-bold text-dark">
+                            <i class="bi bi-shield-lock-fill me-2"></i>
+                            ${titulo}
+                        </h5>
+                        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-4">
+                        <p class="mb-3 text-dark">${mensaje}</p>
+                        <div class="mb-2">
+                            <label class="form-label fw-semibold text-muted small">Ingrese la clave de seguridad:</label>
+                            <input type="password" id="inputClaveSeguridadConfirmacion" class="form-control text-center bg-light fw-bold" placeholder="••••••••" maxlength="8" style="border-radius: 8px; letter-spacing: 0.2em;">
+                            <div id="errorClaveSeguridad" class="text-danger small mt-1 d-none">Clave incorrecta. Intente nuevamente.</div>
+                        </div>
+                    </div>
+                    <div class="modal-footer border-0 bg-light py-3" style="border-radius: 0 0 12px 12px;">
+                        <button type="button" class="btn btn-light px-4 fw-semibold" data-bs-dismiss="modal" style="border-radius: 8px;">
+                            Cancelar
+                        </button>
+                        <button type="button" class="btn btn-warning px-4 fw-semibold" id="btnConfirmarSeguridad" style="border-radius: 8px;">
+                            <i class="bi bi-check-lg me-1"></i>Confirmar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const modalExistente = document.getElementById('modalConfirmacionSeguridad');
+    if (modalExistente) {
+        modalExistente.remove();
+    }
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    const modalElement = document.getElementById('modalConfirmacionSeguridad');
+    const modalInstance = new bootstrap.Modal(modalElement, {
+        backdrop: 'static',
+        keyboard: false
+    });
+    modalInstance.show();
+
+    const btnConfirmar = document.getElementById('btnConfirmarSeguridad');
+    
+    btnConfirmar.replaceWith(btnConfirmar.cloneNode(true));
+    const nuevoBtn = document.getElementById('btnConfirmarSeguridad');
+
+    nuevoBtn.addEventListener('click', function() {
+        const claveIngresada = document.getElementById('inputClaveSeguridadConfirmacion').value;
+        const errorDiv = document.getElementById('errorClaveSeguridad');
+        
+        if (claveIngresada === CLAVE_SEGURIDAD_USUARIOS) {
+            errorDiv.classList.add('d-none');
+            modalInstance.hide();
+            setTimeout(() => {
+                modalElement.remove();
+                if (typeof callbackAceptar === 'function') {
+                    callbackAceptar();
+                }
+            }, 300);
+        } else {
+            errorDiv.classList.remove('d-none');
+            document.getElementById('inputClaveSeguridadConfirmacion').value = '';
+            document.getElementById('inputClaveSeguridadConfirmacion').focus();
+        }
+    });
+
+    document.getElementById('inputClaveSeguridadConfirmacion').addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            nuevoBtn.click();
+        }
+    });
+
+    modalElement.addEventListener('hidden.bs.modal', function() {
+        setTimeout(() => {
+            modalElement.remove();
+        }, 300);
+    });
+}
+
+// ==========================================================================
+// MODAL DE CONFIRMACIÓN PARA ELIMINAR USUARIO (BOOTSTRAP)
+// ==========================================================================
+
+function mostrarModalConfirmacionEliminar(uid, nombreUsuario, callbackEliminar) {
+    const modalHTML = `
+        <div class="modal fade" id="modalConfirmarEliminarUsuario" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+                    <div class="modal-header border-0 bg-danger py-3" style="border-radius: 12px 12px 0 0;">
+                        <h5 class="modal-title fw-bold text-white">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            Confirmar Eliminación
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-4 text-center">
+                        <div class="mb-3">
+                            <i class="bi bi-person-x-fill text-danger" style="font-size: 3rem;"></i>
+                        </div>
+                        <h6 class="fw-bold text-dark mb-2">¿Eliminar usuario?</h6>
+                        <p class="text-muted mb-3">
+                            ¿Estás seguro de eliminar al usuario <strong>"${nombreUsuario}"</strong>?
+                            <br><span class="small text-danger">Esta acción no se puede deshacer.</span>
+                        </p>
+                    </div>
+                    <div class="modal-footer border-0 bg-light py-3 justify-content-center gap-2" style="border-radius: 0 0 12px 12px;">
+                        <button type="button" class="btn btn-secondary px-4 fw-semibold" data-bs-dismiss="modal" style="border-radius: 8px;">
+                            Cancelar
+                        </button>
+                        <button type="button" class="btn btn-danger px-4 fw-bold" id="btnConfirmarEliminarUsuario" style="border-radius: 8px;">
+                            <i class="bi bi-trash3 me-1"></i> Sí, Eliminar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const modalExistente = document.getElementById('modalConfirmarEliminarUsuario');
+    if (modalExistente) {
+        modalExistente.remove();
+    }
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    const modalElement = document.getElementById('modalConfirmarEliminarUsuario');
+    const modalInstance = new bootstrap.Modal(modalElement, {
+        backdrop: 'static',
+        keyboard: false
+    });
+    modalInstance.show();
+
+    document.getElementById('btnConfirmarEliminarUsuario').addEventListener('click', function() {
+        modalInstance.hide();
+        setTimeout(() => {
+            modalElement.remove();
+            if (typeof callbackEliminar === 'function') {
+                callbackEliminar();
+            }
+        }, 300);
+    });
+
+    modalElement.addEventListener('hidden.bs.modal', function() {
+        setTimeout(() => {
+            modalElement.remove();
+        }, 300);
+    });
+}
+
+// ==========================================================================
+// FUNCIÓN PRINCIPAL - CARGAR MÓDULO DE USUARIOS
+// ==========================================================================
+
+function cargarModuloUsuarios() {
+    // === VALIDACIÓN DE ACCESO ===
+    if (!validarAccesoUsuarios()) {
+        return;
+    }
+
+    const contenedor = document.getElementById('contenidoDinamico');
+    if (!contenedor) return;
+
+    if (typeof resaltarItemMenu === 'function') resaltarItemMenu('nav-usuarios');
+    
+    cargarRoles();
+
+    contenedor.innerHTML = `
+        <div class="animate__animated animate__fadeIn position-relative">
+
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h2 class="fw-bold mb-1 text-dark">Control de Usuarios</h2>
+                    <p class="text-muted mb-0">Administración de credenciales, roles y accesos del personal al sistema.</p>
+                </div>
+                <div class="d-flex gap-2">
+                    <button class="btn btn-outline-secondary" onclick="abrirModalRoles()" style="border-radius: 8px;">
+                        <i class="bi bi-tags-fill me-2"></i>Gestionar Roles
+                    </button>
+                    <button class="btn btn-primary" onclick="prepararFormularioUsuarioNuevo()" style="border-radius: 8px;">
+                        <i class="bi bi-person-plus-fill me-2"></i>Agregar Nuevo Colaborador
+                    </button>
+                </div>
+            </div>
+
+            <div class="card border-0 shadow-sm p-3 mb-4 bg-white">
+                <div class="row">
+                    <div class="col-12 col-md-6 col-lg-4">
+                        <div class="input-group">
+                            <span class="input-group-text bg-light border-end-0 text-muted" style="border-radius: 8px 0 0 8px;">
+                                <i class="bi bi-search"></i>
+                            </span>
+                            <input type="text" id="buscarUsuario" class="form-control bg-light border-start-0 ps-1" placeholder="Buscar por nombre, correo o código..." style="border-radius: 0 8px 8px 0; box-shadow: none;" oninput="filtrarUsuarios()">
+                        </div>
+                    </div>
+                    <div class="col-12 col-md-3 col-lg-2">
+                        <select id="filtroRolUsuario" class="form-select bg-light" style="border-radius: 8px;" onchange="filtrarUsuarios()">
+                            <option value="">Todos los roles</option>
+                            ${rolesAlmacen.map(rol => `<option value="${rol}">${rol.charAt(0).toUpperCase() + rol.slice(1)}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card border-0 shadow-sm p-4 bg-white">
+                <div class="table-responsive">
+                    <table class="table table-hover align-middle mb-0">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Usuario</th>
+                                <th>Correo Electrónico</th>
+                                <th>Código de Acceso</th>
+                                <th>Rol del Sistema</th>
+                                <th>Estado de Cuenta</th>
+                                <th class="text-end">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="cuerpoTablaUsuarios">
+                            <tr>
+                                <td colspan="6" class="text-center text-muted py-4" id="cargandoUsuarios">
+                                    <div class="spinner-border spinner-border-sm text-primary me-2" role="status"></div>
+                                    Cargando usuarios...
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL PARA REGISTRAR/EDITAR USUARIO -->
+        <div class="modal fade" id="modalUsuarioForm" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered modal-lg">
+                <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+                    <div class="modal-header border-0 bg-light py-3" style="border-radius: 12px 12px 0 0;">
+                        <h5 class="modal-title fw-bold text-dark" id="tituloModalUsuario">
+                            <i class="bi bi-person-plus text-primary me-2"></i>Registrar Nuevo Colaborador
+                        </h5>
+                        <button type="button" class="btn-close" onclick="cerrarModalUsuario()" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-4">
+                        <form id="formFichaUsuario">
+                            <input type="hidden" id="keyUsuarioEdicionOriginal" value="">
+
+                            <div class="row mb-3">
+                                <div class="col-md-6 col-12">
+                                    <label class="form-label small fw-bold text-muted">Nombre Completo <span class="text-danger">*</span></label>
+                                    <input type="text" id="usuNombre" class="form-control bg-light" placeholder="Ej. Juan Pérez" required style="border-radius: 8px;">
+                                </div>
+                                <div class="col-md-6 col-12">
+                                    <label class="form-label small fw-bold text-muted">Correo Electrónico <span class="text-danger">*</span></label>
+                                    <input type="email" id="usuEmail" class="form-control bg-light" placeholder="ejemplo@correo.com" required style="border-radius: 8px;">
+                                    <div class="form-text text-muted small">El correo será usado para iniciar sesión en el sistema.</div>
+                                </div>
+                            </div>
+
+                            <div class="row mb-3">
+                                <div class="col-md-6 col-12">
+                                    <label class="form-label small fw-bold text-muted">Código de Acceso <span class="text-danger">*</span></label>
+                                    <input type="text" id="usuCodigo" class="form-control bg-light fw-bold text-uppercase" placeholder="MANTILLA-XXXXX" required style="border-radius: 8px; letter-spacing: 0.5px;">
+                                    <div class="form-text text-muted small">Código interno para identificación rápida.</div>
+                                </div>
+                                <div class="col-md-6 col-12">
+                                    <label class="form-label small fw-bold text-muted">Rol asignado <span class="text-danger">*</span></label>
+                                    <select id="usuRol" class="form-select bg-light" required style="border-radius: 8px;">
+                                        <option value="" selected disabled>Seleccione un rol...</option>
+                                        ${rolesAlmacen.map(rol => `<option value="${rol}">${rol.charAt(0).toUpperCase() + rol.slice(1)}</option>`).join('')}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="row mb-3" id="contenedorPasswordUsuario">
+                                <div class="col-md-6 col-12">
+                                    <label class="form-label small fw-bold text-muted">Contraseña <span class="text-danger">*</span></label>
+                                    <div class="input-group">
+                                        <input type="password" id="usuPassword" class="form-control bg-light" placeholder="••••••••" required style="border-radius: 8px 0 0 8px;">
+                                        <button type="button" class="btn btn-outline-secondary" onclick="togglePasswordUsuario()" style="border-radius: 0 8px 8px 0;">
+                                            <i id="usuEyeIcon" class="bi bi-eye"></i>
+                                        </button>
+                                    </div>
+                                    <div class="form-text text-muted small">Mínimo 6 caracteres.</div>
+                                </div>
+                                <div class="col-md-6 col-12">
+                                    <label class="form-label small fw-bold text-muted">Confirmar Contraseña <span class="text-danger">*</span></label>
+                                    <input type="password" id="usuPasswordConfirm" class="form-control bg-light" placeholder="••••••••" required style="border-radius: 8px;">
+                                </div>
+                            </div>
+
+                            <div class="d-grid gap-2 mt-4">
+                                <button type="submit" class="btn btn-primary py-2 fw-semibold" id="btnGuardarUsuario" style="border-radius: 8px;">
+                                    <i class="bi bi-check-lg me-1"></i>Registrar Usuario
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL GESTIÓN DE ROLES -->
+        <div class="modal fade" id="modalRoles" tabindex="-1" aria-hidden="true">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+                    <div class="modal-header border-0 bg-light py-3" style="border-radius: 12px 12px 0 0;">
+                        <h5 class="modal-title fw-bold text-dark">
+                            <i class="bi bi-tags text-secondary me-2"></i>Administrar Roles
+                        </h5>
+                        <button type="button" class="btn-close" onclick="cerrarModalRoles()" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-4">
+                        <form id="formRol" class="mb-3">
+                            <input type="hidden" id="indexRolEdicion" value="-1">
+                            <label class="form-label small fw-bold text-muted" id="lblFormRol">Nuevo Rol</label>
+                            <div class="input-group">
+                                <input type="text" id="rolNombre" class="form-control bg-light" placeholder="Ej. supervisor" required style="border-radius: 8px 0 0 8px;">
+                                <button type="submit" class="btn btn-dark" id="btnSalvarRol" style="border-radius: 0 8px 8px 0;">
+                                    <i class="bi bi-check-lg" id="iconoBtnRol"></i>
+                                </button>
+                                <button type="button" class="btn btn-outline-secondary d-none ms-1" id="btnCancelarEdicionRol" onclick="limpiarFormularioRol()" style="border-radius: 8px;">Cancelar</button>
+                            </div>
+                        </form>
+                        <hr class="text-muted my-3">
+                        <h6 class="small fw-bold text-muted mb-2">Roles Registrados:</h6>
+                        <ul class="list-group list-group-flush border rounded overflow-hidden" id="listaRolesUI" style="max-height: 200px; overflow-y: auto;">
+                        </ul>
+                        <div class="form-text text-muted small mt-2">
+                            <i class="bi bi-info-circle me-1"></i> Los roles se guardan localmente en tu navegador.
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    inicializarLogicaUsuarios();
+    cargarUsuariosDesdeAuthYRoles();
+    renderizarListaRolesUI();
+}
+
+// ==========================================================================
+// NUEVA FUNCIÓN: Cargar usuarios desde Firebase Auth + Roles desde Realtime DB
+// ==========================================================================
+
+function cargarUsuariosDesdeAuthYRoles() {
+    const auth = obtenerAuth();
+    const refUsuarios = obtenerReferenciaUsuarios();
+    
+    if (!auth) {
+        mostrarModalUsuarios("No se pudo conectar con Firebase Authentication.", "danger");
+        return;
+    }
+
+    if (refUsuarios) {
+        refUsuarios.on('value', (snapshot) => {
+            const datos = snapshot.val() || {};
+            usuariosAlmacen = datos;
+            actualizarTablaUsuarios();
+        }, (error) => {
+            console.error("Error leyendo usuarios:", error);
+            mostrarModalUsuarios("Error al leer los datos de usuarios.", "danger");
+        });
+    } else {
+        const usuarioActual = auth.currentUser;
+        if (usuarioActual) {
+            const refUsuario = refUsuarios ? refUsuarios.child(usuarioActual.uid) : null;
+            if (refUsuario) {
+                refUsuario.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        usuariosAlmacen = { [usuarioActual.uid]: data };
+                        actualizarTablaUsuarios();
+                    }
+                });
+            }
+        }
+    }
+}
+
+// ==========================================================================
+// ACTUALIZAR TABLA DE USUARIOS
+// ==========================================================================
+
+function actualizarTablaUsuarios() {
+    const tbody = document.getElementById('cuerpoTablaUsuarios');
+    if (!tbody) return;
+
+    const entradas = Object.entries(usuariosAlmacen);
+    
+    if (entradas.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center text-muted py-4">
+                    <i class="bi bi-people fs-3 d-block mb-2 text-danger"></i>
+                    No hay usuarios registrados en el sistema.
+                </td>
+            </tr>
         `;
         return;
     }
 
-    if (typeof resaltarItemMenu === 'function') resaltarItemMenu('nav-gastos');
+    let htmlFilas = "";
+    entradas.forEach(([uid, usuario]) => {
+        const esAdminPrincipal = usuario.email === USUARIO_ADMIN_PRINCIPAL;
+        const rolNombre = usuario.rol ? usuario.rol.charAt(0).toUpperCase() + usuario.rol.slice(1) : 'Sin rol';
+        const coloresRol = {
+            'admin': 'bg-dark',
+            'ventas': 'bg-primary',
+            'optometra': 'bg-info'
+        };
+        const rolBadge = coloresRol[usuario.rol] || 'bg-secondary';
+        const estadoBadge = usuario.activo !== false ? 'bg-success' : 'bg-danger';
+        const estadoTexto = usuario.activo !== false ? 'Activo' : 'Inactivo';
 
-    contenedor.innerHTML = `
-        <div class="animate__animated animate__fadeIn">
-            <div class="d-flex justify-content-between align-items-center mb-4">
-                <div>
-                    <h2 class="fw-bold mb-1 text-dark">
-                        <i class="bi bi-wallet2 text-danger me-2"></i>Registro de Gastos
-                    </h2>
-                    <p class="text-muted mb-0">Registra y controla los gastos del día.</p>
-                </div>
-                <button class="btn btn-outline-secondary btn-sm" onclick="cargarModuloGastos()">
-                    <i class="bi bi-arrow-clockwise me-1"></i> Recargar Datos
-                </button>
-            </div>
+        const badgeAdmin = esAdminPrincipal ? '<span class="badge bg-warning text-dark ms-1"><i class="bi bi-star-fill me-1"></i>Principal</span>' : '';
 
-            <!-- Resumen de Caja y Gastos -->
-            <div class="row g-3 mb-4">
-                <div class="col-md-4">
-                    <div class="card border-0 shadow-sm p-3 bg-white border-start border-4 border-success">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <h6 class="text-muted text-uppercase small fw-bold mb-1">💰 Dinero en Caja</h6>
-                                <h3 class="fw-bold mb-0 text-success" id="gastosMontoCaja">S/ 0.00</h3>
-                            </div>
-                            <div class="bg-success bg-opacity-10 p-3 rounded text-success">
-                                <i class="bi bi-cash-stack fs-4"></i>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card border-0 shadow-sm p-3 bg-white border-start border-4 border-danger">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <h6 class="text-muted text-uppercase small fw-bold mb-1">📊 Total Gastos Hoy</h6>
-                                <h3 class="fw-bold mb-0 text-danger" id="gastosTotalHoy">S/ 0.00</h3>
-                            </div>
-                            <div class="bg-danger bg-opacity-10 p-3 rounded text-danger">
-                                <i class="bi bi-arrow-down-circle fs-4"></i>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="col-md-4">
-                    <div class="card border-0 shadow-sm p-3 bg-white border-start border-4 border-info">
-                        <div class="d-flex justify-content-between align-items-center">
-                            <div>
-                                <h6 class="text-muted text-uppercase small fw-bold mb-1">📋 Total Gastos</h6>
-                                <h3 class="fw-bold mb-0 text-info" id="gastosContador">0</h3>
-                            </div>
-                            <div class="bg-info bg-opacity-10 p-3 rounded text-info">
-                                <i class="bi bi-list-ul fs-4"></i>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+        htmlFilas += `
+            <tr class="item-usuario-fila" data-uid="${uid}">
+                <td>
+                    <strong class="nombre-usuario">${usuario.nombre || 'Sin nombre'}</strong>
+                    ${badgeAdmin}
+                </td>
+                <td><span class="email-usuario">${usuario.email || 'Sin correo'}</span></td>
+                <td><code class="text-primary fw-bold codigo-usuario">${usuario.codigo || 'N/A'}</code></td>
+                <td><span class="badge ${rolBadge} px-2.5 py-1.5 rol-usuario">${rolNombre}</span></td>
+                <td><span class="badge ${estadoBadge} bg-opacity-10 text-${usuario.activo !== false ? 'success' : 'danger'} px-2 py-1"><i class="bi bi-circle-fill me-1 small"></i> ${estadoTexto}</span></td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="solicitarAutorizacionSeguridadUsuarios('editar', '${uid}')" title="Editar Usuario" style="border-radius: 6px;">
+                        <i class="bi bi-pencil-square"></i>
+                    </button>
+                    <button class="btn btn-sm ${usuario.activo !== false ? 'btn-outline-warning' : 'btn-outline-success'} me-1" onclick="solicitarAutorizacionSeguridadUsuarios('toggle', '${uid}')" title="${usuario.activo !== false ? 'Desactivar' : 'Activar'} Usuario" style="border-radius: 6px;">
+                        <i class="bi ${usuario.activo !== false ? 'bi-pause-circle' : 'bi-play-circle'}"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="solicitarAutorizacionSeguridadUsuarios('eliminar', '${uid}')" title="${esAdminPrincipal ? 'No se puede eliminar al administrador principal' : 'Eliminar Usuario'}" style="border-radius: 6px;" ${esAdminPrincipal ? 'disabled' : ''}>
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
 
-            <!-- Formulario de Registro de Gasto -->
-            <div class="card border-0 shadow-sm mb-4">
-                <div class="card-header bg-white py-3 border-0">
-                    <h5 class="fw-bold mb-0 text-dark">
-                        <i class="bi bi-plus-circle me-2 text-danger"></i>Registrar Nuevo Gasto
-                    </h5>
-                </div>
-                <div class="card-body">
-                    <form id="formRegistroGasto">
-                        <div class="row g-3">
-                            <div class="col-md-6">
-                                <label for="gastoDescripcion" class="form-label fw-bold small text-muted">
-                                    <i class="bi bi-pencil-square me-1"></i>Descripción del Gasto
-                                </label>
-                                <input type="text" class="form-control" id="gastoDescripcion" 
-                                       placeholder="Ej: Compra de insumos, servicio de limpieza..." required>
-                            </div>
-                            <div class="col-md-4">
-                                <label for="gastoMonto" class="form-label fw-bold small text-muted">
-                                    <i class="bi bi-currency-dollar me-1"></i>Monto (S/)
-                                </label>
-                                <div class="input-group">
-                                    <span class="input-group-text bg-light fw-bold">S/</span>
-                                    <input type="number" class="form-control" id="gastoMonto" 
-                                           placeholder="0.00" step="0.01" min="0.01" required>
-                                </div>
-                            </div>
-                            <div class="col-md-2 d-flex align-items-end">
-                                <button type="submit" class="btn btn-danger w-100 fw-bold" id="btnRegistrarGasto">
-                                    <i class="bi bi-check-lg me-1"></i> Registrar Gasto
-                                </button>
-                            </div>
-                        </div>
-                        <div id="gastoErrorContainer" class="mt-3"></div>
-                    </form>
-                </div>
-            </div>
-
-            <!-- Tabla de Gastos del Día -->
-            <div class="card border-0 shadow-sm">
-                <div class="card-header bg-white py-3 border-0 d-flex justify-content-between align-items-center">
-                    <h5 class="fw-bold mb-0 text-dark">
-                        <i class="bi bi-clock-history me-2 text-danger"></i>Gastos del Día
-                    </h5>
-                    <span class="badge bg-danger rounded-pill" id="contadorGastosTabla">0</span>
-                </div>
-                <div class="card-body p-0">
-                    <div class="table-responsive">
-                        <table class="table table-hover mb-0">
-                            <thead class="bg-light">
-                                <tr>
-                                    <th class="border-0 py-3 px-4">#</th>
-                                    <th class="border-0 py-3">Descripción</th>
-                                    <th class="border-0 py-3 text-end">Monto</th>
-                                    <th class="border-0 py-3 text-center">Fecha</th>
-                                    <th class="border-0 py-3 text-center">Registrado por</th>
-                                    <th class="border-0 py-3 text-center">Acciones</th>
-                                </tr>
-                            </thead>
-                            <tbody id="tablaGastosBody">
-                                <tr>
-                                    <td colspan="6" class="text-center text-muted py-4">
-                                        <i class="bi bi-inbox fs-2 d-block mb-2"></i>
-                                        No hay gastos registrados hoy
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-        </div>
-    `;
-
-    // Inicializar el módulo de gastos
-    inicializarGastos();
+    tbody.innerHTML = htmlFilas;
 }
 
 // ==========================================================================
-// INICIALIZACIÓN DEL MÓDULO DE GASTOS
+// FILTRADO DE USUARIOS
 // ==========================================================================
 
-function inicializarGastos() {
-    // Cargar datos de caja en tiempo real
-    actualizarCajaParaGastos();
+function filtrarUsuarios() {
+    const termino = document.getElementById('buscarUsuario')?.value.toLowerCase().trim() || '';
+    const rolFiltro = document.getElementById('filtroRolUsuario')?.value || '';
+    const filas = document.querySelectorAll('#cuerpoTablaUsuarios tr.item-usuario-fila');
+    let cont = 0;
 
-    // Cargar lista de gastos
-    cargarListaGastos();
+    filas.forEach(fila => {
+        const nombre = fila.querySelector('.nombre-usuario')?.innerText.toLowerCase() || '';
+        const email = fila.querySelector('.email-usuario')?.innerText.toLowerCase() || '';
+        const codigo = fila.querySelector('.codigo-usuario')?.innerText.toLowerCase() || '';
+        const rol = fila.querySelector('.rol-usuario')?.innerText.toLowerCase() || '';
 
-    // Configurar el formulario de registro
-    const form = document.getElementById('formRegistroGasto');
-    if (form) {
-        form.addEventListener('submit', function(e) {
-            e.preventDefault();
-            registrarGasto();
-        });
-    }
+        const coincideTexto = nombre.includes(termino) || email.includes(termino) || codigo.includes(termino);
+        const coincideRol = !rolFiltro || rol === rolFiltro;
 
-    // Limpiar mensajes de error al escribir
-    const descripcionInput = document.getElementById('gastoDescripcion');
-    const montoInput = document.getElementById('gastoMonto');
-    
-    if (descripcionInput) {
-        descripcionInput.addEventListener('input', function() {
-            limpiarErroresGasto();
-        });
-    }
-    if (montoInput) {
-        montoInput.addEventListener('input', function() {
-            limpiarErroresGasto();
-        });
-    }
-}
-
-// ==========================================================================
-// ACTUALIZAR CAJA PARA GASTOS
-// ==========================================================================
-
-function actualizarCajaParaGastos() {
-    const fechaHoy = new Date().toISOString().split('T')[0];
-    const cajaRef = firebase.database().ref('cajas/' + fechaHoy);
-    
-    // Remover listener anterior
-    if (cajaListener) {
-        cajaRef.off('value', cajaListener);
-    }
-
-    cajaListener = cajaRef.on('value', (snapshot) => {
-        const montoCajaEl = document.getElementById('gastosMontoCaja');
-        
-        if (snapshot.exists()) {
-            const data = snapshot.val();
-            const totalEfectivo = data.totalEfectivo || 0;
-            const totalYape = data.totalYape || 0;
-            const totalTransferencia = data.totalTransferencia || 0;
-            const totalTarjeta = data.totalTarjeta || 0;
-            const totalGeneral = totalEfectivo + totalYape + totalTransferencia + totalTarjeta;
-            
-            if (montoCajaEl) {
-                montoCajaEl.innerText = 'S/ ' + totalGeneral.toFixed(2);
-            }
-            
-            // Guardar el monto en un atributo para validaciones
-            const form = document.getElementById('formRegistroGasto');
-            if (form) {
-                form.dataset.montoCaja = totalGeneral;
-            }
+        if (coincideTexto && coincideRol) {
+            fila.classList.remove('d-none');
+            cont++;
         } else {
-            if (montoCajaEl) {
-                montoCajaEl.innerText = 'S/ 0.00';
-            }
-            const form = document.getElementById('formRegistroGasto');
-            if (form) {
-                form.dataset.montoCaja = '0';
-            }
+            fila.classList.add('d-none');
         }
-    }, (error) => {
-        console.error('❌ Error al escuchar caja para gastos:', error);
     });
 }
 
 // ==========================================================================
-// CARGAR LISTA DE GASTOS
+// FUNCIONES DE APERTURA Y CIERRE DE MODALES
 // ==========================================================================
 
-function cargarListaGastos() {
-    const fechaHoy = new Date().toISOString().split('T')[0];
-    const gastosRef = firebase.database().ref('gastos/' + fechaHoy);
-    
-    // Remover listener anterior
-    if (gastosListener) {
-        gastosRef.off('value', gastosListener);
+function abrirModalPorId(idModal) {
+    const modalElement = document.getElementById(idModal);
+    if (modalElement) {
+        modalElement.classList.add('show');
+        modalElement.style.display = 'block';
+        modalElement.removeAttribute('aria-hidden');
+        modalElement.setAttribute('aria-modal', 'true');
+        modalElement.setAttribute('role', 'dialog');
+
+        if (!document.querySelector('.modal-backdrop')) {
+            const backdrop = document.createElement('div');
+            backdrop.className = 'modal-backdrop fade show';
+            document.body.appendChild(backdrop);
+        }
+        document.body.classList.add('modal-open');
+    }
+}
+
+function cerrarModalPorId(idModal) {
+    const modalElement = document.getElementById(idModal);
+    if (modalElement) {
+        modalElement.classList.remove('show');
+        modalElement.style.display = 'none';
+        modalElement.setAttribute('aria-hidden', 'true');
+        modalElement.removeAttribute('aria-modal');
+        modalElement.removeAttribute('role');
+        
+        document.querySelector('.modal-backdrop')?.remove();
+        document.body.classList.remove('modal-open');
+    }
+}
+
+window.cerrarModalUsuario = function() { cerrarModalPorId('modalUsuarioForm'); };
+window.cerrarModalRoles = function() { cerrarModalPorId('modalRoles'); };
+window.abrirModalRoles = function() {
+    renderizarListaRolesUI();
+    abrirModalPorId('modalRoles');
+};
+
+function togglePasswordUsuario() {
+    const passInput = document.getElementById('usuPassword');
+    const icon = document.getElementById('usuEyeIcon');
+    if (passInput.type === 'password') {
+        passInput.type = 'text';
+        icon.className = 'bi bi-eye-slash';
+    } else {
+        passInput.type = 'password';
+        icon.className = 'bi bi-eye';
+    }
+}
+
+// ==========================================================================
+// GESTIÓN DE ROLES
+// ==========================================================================
+
+function renderizarListaRolesUI() {
+    const lista = document.getElementById('listaRolesUI');
+    if (!lista) return;
+
+    if (rolesAlmacen.length === 0) {
+        lista.innerHTML = `<li class="list-group-item text-center text-muted small py-3">No hay roles registrados. Agrega uno arriba.</li>`;
+        return;
     }
 
-    gastosListener = gastosRef.on('value', (snapshot) => {
-        const tbody = document.getElementById('tablaGastosBody');
-        const totalHoyEl = document.getElementById('gastosTotalHoy');
-        const contadorEl = document.getElementById('gastosContador');
-        const contadorTablaEl = document.getElementById('contadorGastosTabla');
-        
-        if (!tbody) return;
+    let html = "";
+    rolesAlmacen.forEach((rol, index) => {
+        const tieneUsuarios = Object.values(usuariosAlmacen).some(u => u.rol === rol);
 
-        if (!snapshot.exists()) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="6" class="text-center text-muted py-4">
-                        <i class="bi bi-inbox fs-2 d-block mb-2"></i>
-                        No hay gastos registrados hoy
-                    </td>
-                </tr>
-            `;
-            if (totalHoyEl) totalHoyEl.innerText = 'S/ 0.00';
-            if (contadorEl) contadorEl.innerText = '0';
-            if (contadorTablaEl) contadorTablaEl.innerText = '0';
+        html += `
+            <li class="list-group-item d-flex justify-content-between align-items-center py-2">
+                <span class="fw-medium small">${rol.charAt(0).toUpperCase() + rol.slice(1)}</span>
+                <div>
+                    <button class="btn btn-sm text-primary p-0 me-2" onclick="prepararEdicionRol(${index})" title="Editar"><i class="bi bi-pencil"></i></button>
+                    <button class="btn btn-sm text-danger p-0 ${tieneUsuarios ? 'opacity-50' : ''}" onclick="eliminarRol(${index})" ${tieneUsuarios ? 'disabled' : ''} title="${tieneUsuarios ? 'No se puede eliminar porque tiene usuarios asignados' : 'Eliminar'}">
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </div>
+            </li>
+        `;
+    });
+    lista.innerHTML = html;
+}
+
+window.prepararEdicionRol = function(index) {
+    document.getElementById('rolNombre').value = rolesAlmacen[index];
+    document.getElementById('indexRolEdicion').value = index;
+    document.getElementById('lblFormRol').innerText = "Modificar Nombre del Rol";
+    document.getElementById('iconoBtnRol').className = "bi bi-check-lg";
+    document.getElementById('btnCancelarEdicionRol').classList.remove('d-none');
+    document.getElementById('rolNombre').focus();
+};
+
+window.eliminarRol = function(index) {
+    const rolAEliminar = rolesAlmacen[index];
+    
+    const tieneUsuarios = Object.values(usuariosAlmacen).some(u => u.rol === rolAEliminar);
+    if (tieneUsuarios) {
+        mostrarModalUsuarios(`No puedes eliminar el rol <strong>"${rolAEliminar}"</strong> porque hay usuarios que lo tienen asignado.`, "danger");
+        return;
+    }
+
+    mostrarModalConfirmacionSeguridad(
+        'Eliminar Rol',
+        `¿Estás seguro de eliminar el rol <strong>"${rolAEliminar}"</strong>? Esta acción no se puede deshacer.`,
+        function() {
+            rolesAlmacen.splice(index, 1);
+            persistirRoles();
+            mostrarModalUsuarios(`Rol <strong>"${rolAEliminar}"</strong> eliminado.`, "danger");
+            limpiarFormularioRol();
+            renderizarListaRolesUI();
+            actualizarSelectoresRoles();
+        }
+    );
+};
+
+function limpiarFormularioRol() {
+    document.getElementById('rolNombre').value = "";
+    document.getElementById('indexRolEdicion').value = "-1";
+    document.getElementById('lblFormRol').innerText = "Nuevo Rol";
+    document.getElementById('iconoBtnRol').className = "bi bi-check-lg";
+    document.getElementById('btnCancelarEdicionRol').classList.add('d-none');
+}
+
+function actualizarSelectoresRoles() {
+    const filtro = document.getElementById('filtroRolUsuario');
+    if (filtro) {
+        const valorActual = filtro.value;
+        filtro.innerHTML = `<option value="">Todos los roles</option>`;
+        rolesAlmacen.forEach(rol => {
+            filtro.innerHTML += `<option value="${rol}">${rol.charAt(0).toUpperCase() + rol.slice(1)}</option>`;
+        });
+        filtro.value = valorActual;
+    }
+
+    const selector = document.getElementById('usuRol');
+    if (selector) {
+        const valorActual = selector.value;
+        selector.innerHTML = `<option value="" selected disabled>Seleccione un rol...</option>`;
+        rolesAlmacen.forEach(rol => {
+            selector.innerHTML += `<option value="${rol}">${rol.charAt(0).toUpperCase() + rol.slice(1)}</option>`;
+        });
+        selector.value = valorActual;
+    }
+}
+
+// ==========================================================================
+// LÓGICA DE FORMULARIOS
+// ==========================================================================
+
+function inicializarLogicaUsuarios() {
+    const formUsuario = document.getElementById('formFichaUsuario');
+    const formRol = document.getElementById('formRol');
+
+    if (formUsuario) {
+        formUsuario.addEventListener('submit', function (e) {
+            e.preventDefault();
+            guardarUsuario();
+        });
+    }
+
+    if (formRol) {
+        formRol.addEventListener('submit', function (e) {
+            e.preventDefault();
+            const inputRol = document.getElementById('rolNombre');
+            const indexEdicion = parseInt(document.getElementById('indexRolEdicion').value);
+            const nombreRol = inputRol.value.trim().toLowerCase();
+
+            if (!nombreRol) {
+                mostrarModalUsuarios("Ingrese un nombre para el rol.", "warning");
+                return;
+            }
+
+            if (indexEdicion === -1) {
+                if (rolesAlmacen.includes(nombreRol)) {
+                    mostrarModalUsuarios("El rol ya existe.", "danger");
+                    return;
+                }
+                rolesAlmacen.push(nombreRol);
+                mostrarModalUsuarios(`Rol <strong>${nombreRol}</strong> agregado.`, "success");
+            } else {
+                const rolAnterior = rolesAlmacen[indexEdicion];
+                const tieneUsuarios = Object.values(usuariosAlmacen).some(u => u.rol === rolAnterior);
+                if (tieneUsuarios && rolAnterior !== nombreRol) {
+                    mostrarModalUsuarios(`No puedes cambiar el nombre del rol <strong>"${rolAnterior}"</strong> porque hay usuarios que lo tienen asignado.`, "danger");
+                    return;
+                }
+                rolesAlmacen[indexEdicion] = nombreRol;
+                mostrarModalUsuarios(`Rol actualizado con éxito.`, "success");
+                limpiarFormularioRol();
+            }
+
+            persistirRoles();
+            inputRol.value = "";
+            renderizarListaRolesUI();
+            actualizarSelectoresRoles();
+        });
+    }
+}
+
+// ==========================================================================
+// GUARDAR USUARIO (Crear en Firebase Auth + Guardar en Realtime DB)
+// ==========================================================================
+
+function guardarUsuario() {
+    const refUsuarios = obtenerReferenciaUsuarios();
+    const auth = obtenerAuth();
+    
+    if (!refUsuarios) {
+        mostrarModalUsuarios("No se pudo conectar con Firebase Database.", "danger");
+        return;
+    }
+    
+    if (!auth) {
+        mostrarModalUsuarios("No se pudo conectar con Firebase Authentication.", "danger");
+        return;
+    }
+
+    const uidOriginal = document.getElementById('keyUsuarioEdicionOriginal').value;
+    const nombre = document.getElementById('usuNombre').value.trim();
+    const email = document.getElementById('usuEmail').value.trim();
+    const codigo = document.getElementById('usuCodigo').value.trim().toUpperCase();
+    const rol = document.getElementById('usuRol').value;
+    const password = document.getElementById('usuPassword').value;
+    const passwordConfirm = document.getElementById('usuPasswordConfirm').value;
+    const btnGuardar = document.getElementById('btnGuardarUsuario');
+
+    if (!nombre || !email || !codigo || !rol) {
+        mostrarModalUsuarios("Todos los campos obligatorios deben ser completados.", "warning");
+        return;
+    }
+
+    btnGuardar.disabled = true;
+
+    const datosUsuario = {
+        nombre: nombre,
+        email: email,
+        codigo: codigo,
+        rol: rol,
+        activo: true,
+        actualizadoEn: new Date().toISOString()
+    };
+
+    if (uidOriginal) {
+        const usuarioExistente = usuariosAlmacen[uidOriginal];
+        if (usuarioExistente && usuarioExistente.email === USUARIO_ADMIN_PRINCIPAL) {
+            mostrarModalUsuarios("El administrador principal no puede ser modificado.", "warning");
+            btnGuardar.disabled = false;
             return;
         }
 
-        const gastos = snapshot.val();
-        const gastosArray = Object.entries(gastos).map(([key, value]) => ({
-            id: key,
-            ...value
-        }));
+        refUsuarios.child(uidOriginal).update(datosUsuario)
+            .then(() => {
+                // REGISTRAR EDICIÓN DE USUARIO EN HISTORIAL
+                if (typeof window.registrarAccionHistorial === 'function') {
+                    const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                    window.registrarAccionHistorial(
+                        'edicion',
+                        `Usuario editado: ${nombre} (${email})`,
+                        { nombre: nombre, email: email, rol: rol },
+                        'usuarios'
+                    );
+                }
+                mostrarModalUsuarios(`Usuario <strong>${nombre}</strong> actualizado exitosamente.`, "success");
+                document.getElementById('formFichaUsuario').reset();
+                cerrarModalUsuario();
+            })
+            .catch((error) => {
+                console.error("Error al actualizar usuario:", error);
+                mostrarModalUsuarios("Error al actualizar el usuario.", "danger");
+            })
+            .finally(() => { btnGuardar.disabled = false; });
+        return;
+    }
 
-        // Ordenar por fecha de registro (más reciente primero)
-        gastosArray.sort((a, b) => {
-            return (b.fechaRegistro || 0) - (a.fechaRegistro || 0);
-        });
+    if (!password || password.length < 6) {
+        mostrarModalUsuarios("La contraseña debe tener al menos 6 caracteres.", "warning");
+        btnGuardar.disabled = false;
+        return;
+    }
+    if (password !== passwordConfirm) {
+        mostrarModalUsuarios("Las contraseñas no coinciden.", "warning");
+        btnGuardar.disabled = false;
+        return;
+    }
 
-        // Calcular total de gastos
-        let totalGastos = 0;
-        let html = '';
-        
-        gastosArray.forEach((gasto, index) => {
-            const monto = parseFloat(gasto.monto) || 0;
-            totalGastos += monto;
+    auth.createUserWithEmailAndPassword(email, password)
+        .then((userCredential) => {
+            const uid = userCredential.user.uid;
+            datosUsuario.creadoEn = new Date().toISOString();
+            datosUsuario.uid = uid;
             
-            const fecha = gasto.fecha ? new Date(gasto.fecha) : new Date();
-            const fechaStr = fecha.toLocaleDateString('es-PE', {
-                day: '2-digit',
-                month: '2-digit',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-
-            html += `
-                <tr>
-                    <td class="py-3 px-4 fw-bold text-muted">${index + 1}</td>
-                    <td class="py-3">
-                        <span class="fw-bold">${gasto.descripcion || 'Sin descripción'}</span>
-                    </td>
-                    <td class="py-3 text-end fw-bold text-danger">S/ ${monto.toFixed(2)}</td>
-                    <td class="py-3 text-center text-muted small">${fechaStr}</td>
-                    <td class="py-3 text-center">
-                        <span class="badge bg-secondary">${gasto.registradoPor || 'Sistema'}</span>
-                    </td>
-                    <td class="py-3 text-center">
-                        <button class="btn btn-sm btn-outline-danger" onclick="eliminarGasto('${gasto.id}')" title="Eliminar gasto">
-                            <i class="bi bi-trash3"></i>
-                        </button>
-                    </td>
-                </tr>
-            `;
-        });
-
-        tbody.innerHTML = html;
-        
-        if (totalHoyEl) totalHoyEl.innerText = 'S/ ' + totalGastos.toFixed(2);
-        if (contadorEl) contadorEl.innerText = gastosArray.length;
-        if (contadorTablaEl) contadorTablaEl.innerText = gastosArray.length;
-
-        // Actualizar el color del total de gastos según el monto
-        if (totalHoyEl) {
-            const montoCaja = parseFloat(document.getElementById('formRegistroGasto')?.dataset?.montoCaja || 0);
-            if (totalGastos > montoCaja) {
-                totalHoyEl.className = 'fw-bold mb-0 text-danger';
-            } else if (totalGastos > 0) {
-                totalHoyEl.className = 'fw-bold mb-0 text-warning';
-            } else {
-                totalHoyEl.className = 'fw-bold mb-0 text-danger';
-            }
-        }
-
-    }, (error) => {
-        console.error('❌ Error al cargar gastos:', error);
-    });
-}
-
-// ==========================================================================
-// REGISTRAR NUEVO GASTO
-// ==========================================================================
-
-function registrarGasto() {
-    const descripcionInput = document.getElementById('gastoDescripcion');
-    const montoInput = document.getElementById('gastoMonto');
-    const errorContainer = document.getElementById('gastoErrorContainer');
-    const btnRegistrar = document.getElementById('btnRegistrarGasto');
-    
-    // Limpiar errores anteriores
-    limpiarErroresGasto();
-
-    // Validar descripción
-    const descripcion = descripcionInput.value.trim();
-    if (!descripcion) {
-        mostrarErrorGasto('⚠️ Por favor, ingrese una descripción del gasto.', descripcionInput);
-        return;
-    }
-
-    // Validar monto
-    const monto = parseFloat(montoInput.value);
-    if (!monto || monto <= 0) {
-        mostrarErrorGasto('⚠️ Por favor, ingrese un monto válido mayor a 0.', montoInput);
-        return;
-    }
-
-    // Validar que el monto no sea mayor al dinero en caja
-    const montoCaja = parseFloat(document.getElementById('formRegistroGasto')?.dataset?.montoCaja || 0);
-    if (monto > montoCaja) {
-        mostrarErrorGasto(
-            `❌ El monto del gasto (S/ ${monto.toFixed(2)}) no puede ser mayor al dinero disponible en caja (S/ ${montoCaja.toFixed(2)}).`,
-            montoInput
-        );
-        return;
-    }
-
-    // Deshabilitar botón
-    btnRegistrar.disabled = true;
-    btnRegistrar.innerHTML = `
-        <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-        Registrando...
-    `;
-
-    // Obtener datos del usuario
-    const usuarioData = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
-    const nombreUsuario = usuarioData.nombre || 'Usuario';
-    const emailUsuario = usuarioData.email || '';
-
-    // Preparar datos del gasto
-    const fechaHoy = new Date().toISOString().split('T')[0];
-    const gastoData = {
-        descripcion: descripcion,
-        monto: monto,
-        fecha: new Date().toISOString(),
-        fechaRegistro: firebase.database.ServerValue.TIMESTAMP,
-        registradoPor: nombreUsuario,
-        emailUsuario: emailUsuario,
-        timestamp: Date.now()
-    };
-
-    // Guardar en Firebase
-    const gastosRef = firebase.database().ref('gastos/' + fechaHoy);
-    const nuevoGastoRef = gastosRef.push();
-
-    nuevoGastoRef.set(gastoData)
+            return refUsuarios.child(uid).set(datosUsuario);
+        })
         .then(() => {
-            console.log('✅ Gasto registrado exitosamente');
-            
-            // Restaurar botón
-            btnRegistrar.disabled = false;
-            btnRegistrar.innerHTML = '<i class="bi bi-check-lg me-1"></i> Registrar Gasto';
-            
-            // Limpiar formulario
-            descripcionInput.value = '';
-            montoInput.value = '';
-            
-            // Mostrar mensaje de éxito con Bootstrap
-            mostrarExitoGasto('✅ Gasto registrado exitosamente. Se ha descontado S/ ' + monto.toFixed(2) + ' de la caja.');
-            
-            // Actualizar caja (restar el gasto del dinero en caja)
-            actualizarCajaConGasto(monto);
-            
+            // REGISTRAR NUEVO USUARIO EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'usuario',
+                    `Nuevo usuario registrado: ${nombre} (${email})`,
+                    { nombre: nombre, email: email, rol: rol },
+                    'usuarios'
+                );
+            }
+            mostrarModalUsuarios(`Usuario <strong>${nombre}</strong> registrado exitosamente.`, "success");
+            document.getElementById('formFichaUsuario').reset();
+            cerrarModalUsuario();
         })
         .catch((error) => {
-            console.error('❌ Error al registrar gasto:', error);
-            mostrarErrorGasto('❌ Error al registrar el gasto: ' + error.message, montoInput);
-            btnRegistrar.disabled = false;
-            btnRegistrar.innerHTML = '<i class="bi bi-check-lg me-1"></i> Registrar Gasto';
+            console.error("Error al registrar usuario:", error);
+            let mensaje = "Error al registrar el usuario.";
+            if (error.code === 'auth/email-already-in-use') {
+                mensaje = "El correo electrónico ya está registrado en Firebase Authentication.";
+            } else if (error.code === 'auth/weak-password') {
+                mensaje = "La contraseña es demasiado débil. Usa al menos 6 caracteres.";
+            } else if (error.code === 'auth/invalid-email') {
+                mensaje = "El formato del correo electrónico no es válido.";
+            }
+            mostrarModalUsuarios(mensaje, "danger");
+        })
+        .finally(() => { btnGuardar.disabled = false; });
+}
+
+// ==========================================================================
+// PREPARAR FORMULARIO PARA NUEVO USUARIO
+// ==========================================================================
+
+window.prepararFormularioUsuarioNuevo = function () {
+    const form = document.getElementById('formFichaUsuario');
+    if (form) form.reset();
+
+    document.getElementById('keyUsuarioEdicionOriginal').value = "";
+    document.getElementById('tituloModalUsuario').innerHTML = `<i class="bi bi-person-plus text-primary me-2"></i>Registrar Nuevo Colaborador`;
+    document.getElementById('btnGuardarUsuario').className = "btn btn-primary py-2 fw-semibold";
+    document.getElementById('btnGuardarUsuario').innerHTML = `<i class="bi bi-check-lg me-1"></i>Registrar Usuario`;
+    
+    document.getElementById('contenedorPasswordUsuario').style.display = 'flex';
+    document.getElementById('usuPassword').required = true;
+    document.getElementById('usuPasswordConfirm').required = true;
+
+    const codigoInput = document.getElementById('usuCodigo');
+    const contador = Object.keys(usuariosAlmacen).length + 1;
+    codigoInput.value = `MANTILLA-${String(contador).padStart(3, '0')}`;
+
+    actualizarSelectoresRoles();
+    abrirModalPorId('modalUsuarioForm');
+};
+
+// ==========================================================================
+// AUTORIZACIÓN DE SEGURIDAD PARA ACCIONES (CORREGIDO)
+// ==========================================================================
+
+window.solicitarAutorizacionSeguridadUsuarios = function (tipo, uid) {
+    if (tipo === 'eliminar') {
+        mostrarModalConfirmacionSeguridad(
+            'Autorización Requerida',
+            `Debes ingresar la clave de seguridad para eliminar este usuario.`,
+            function() {
+                const usuario = usuariosAlmacen[uid];
+                if (usuario) {
+                    mostrarModalConfirmacionEliminar(uid, usuario.nombre || 'Usuario', function() {
+                        ejecutarEliminacionUsuario(uid);
+                    });
+                }
+            }
+        );
+    } else {
+        accionSeguridadPendienteUsuarios = { tipo, uid };
+
+        mostrarModalConfirmacionSeguridad(
+            'Autorización Requerida',
+            `Debes ingresar la clave de seguridad para realizar esta acción.`,
+            function() {
+                if (accionSeguridadPendienteUsuarios) {
+                    const { tipo, uid } = accionSeguridadPendienteUsuarios;
+                    accionSeguridadPendienteUsuarios = null;
+
+                    if (tipo === 'editar') ejecutarEdicionUsuario(uid);
+                    else if (tipo === 'toggle') ejecutarToggleUsuario(uid);
+                }
+            }
+        );
+    }
+};
+
+// ==========================================================================
+// EJECUTAR EDICIÓN DE USUARIO
+// ==========================================================================
+
+function ejecutarEdicionUsuario(uid) {
+    const usuario = usuariosAlmacen[uid];
+    if (!usuario) return;
+
+    if (usuario.email === USUARIO_ADMIN_PRINCIPAL) {
+        mostrarModalUsuarios("El administrador principal no puede ser modificado.", "warning");
+        return;
+    }
+
+    document.getElementById('keyUsuarioEdicionOriginal').value = uid;
+    document.getElementById('usuNombre').value = usuario.nombre || '';
+    document.getElementById('usuEmail').value = usuario.email || '';
+    document.getElementById('usuCodigo').value = usuario.codigo || '';
+    document.getElementById('usuRol').value = usuario.rol || '';
+    
+    document.getElementById('contenedorPasswordUsuario').style.display = 'none';
+    document.getElementById('usuPassword').required = false;
+    document.getElementById('usuPasswordConfirm').required = false;
+
+    document.getElementById('usuCodigo').disabled = true;
+
+    document.getElementById('tituloModalUsuario').innerHTML = `<i class="bi bi-pencil-square text-success me-2"></i>Modificar Usuario`;
+    document.getElementById('btnGuardarUsuario').className = "btn btn-success py-2 fw-semibold";
+    document.getElementById('btnGuardarUsuario').innerHTML = `<i class="bi bi-save me-1"></i>Guardar Cambios`;
+
+    actualizarSelectoresRoles();
+    abrirModalPorId('modalUsuarioForm');
+};
+
+// ==========================================================================
+// EJECUTAR ELIMINACIÓN DE USUARIO
+// ==========================================================================
+
+function ejecutarEliminacionUsuario(uid) {
+    const refUsuarios = obtenerReferenciaUsuarios();
+    const auth = obtenerAuth();
+    const usuario = usuariosAlmacen[uid];
+    
+    if (!refUsuarios || !usuario || !auth) return;
+
+    if (usuario.email === USUARIO_ADMIN_PRINCIPAL) {
+        mostrarModalUsuarios("No se puede eliminar al administrador principal del sistema.", "danger");
+        return;
+    }
+
+    const usuarioLogueado = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+    if (usuario.email === usuarioLogueado.email) {
+        mostrarModalUsuarios("No puedes eliminar tu propio usuario.", "danger");
+        return;
+    }
+
+    const nombreUsuario = usuario.nombre;
+
+    refUsuarios.child(uid).remove()
+        .then(() => {
+            // REGISTRAR ELIMINACIÓN DE USUARIO EN HISTORIAL
+            if (typeof window.registrarAccionHistorial === 'function') {
+                const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+                window.registrarAccionHistorial(
+                    'eliminacion',
+                    `Usuario eliminado: ${nombreUsuario} (${usuario.email})`,
+                    { nombre: nombreUsuario, email: usuario.email },
+                    'usuarios'
+                );
+            }
+            mostrarModalUsuarios(`Usuario <strong>"${nombreUsuario}"</strong> eliminado del sistema.`, "danger");
+        })
+        .catch((error) => {
+            console.error("Error al eliminar usuario:", error);
+            mostrarModalUsuarios("No se pudo eliminar el usuario.", "danger");
         });
 }
 
 // ==========================================================================
-// ACTUALIZAR CAJA CON GASTO (RESTAR MONTO)
+// EJECUTAR TOGGLE (ACTIVAR/DESACTIVAR) USUARIO
 // ==========================================================================
 
-function actualizarCajaConGasto(monto) {
-    const fechaHoy = new Date().toISOString().split('T')[0];
-    const cajaRef = firebase.database().ref('cajas/' + fechaHoy);
+function ejecutarToggleUsuario(uid) {
+    const refUsuarios = obtenerReferenciaUsuarios();
+    const usuario = usuariosAlmacen[uid];
+    if (!refUsuarios || !usuario) return;
 
-    cajaRef.transaction((data) => {
-        if (data === null) {
-            return null;
+    if (usuario.email === USUARIO_ADMIN_PRINCIPAL) {
+        mostrarModalUsuarios("No se puede desactivar al administrador principal del sistema.", "danger");
+        return;
+    }
+
+    const usuarioLogueado = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+    if (usuario.email === usuarioLogueado.email) {
+        mostrarModalUsuarios("No puedes modificar tu propio estado.", "warning");
+        return;
+    }
+
+    const nuevoEstado = usuario.activo === false ? true : false;
+    const estadoTexto = nuevoEstado ? 'activado' : 'desactivado';
+
+    refUsuarios.child(uid).update({
+        activo: nuevoEstado,
+        actualizadoEn: new Date().toISOString()
+    })
+    .then(() => {
+        // REGISTRAR TOGGLE DE USUARIO EN HISTORIAL
+        if (typeof window.registrarAccionHistorial === 'function') {
+            const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
+            window.registrarAccionHistorial(
+                'edicion',
+                `Usuario ${estadoTexto}: ${usuario.nombre} (${usuario.email})`,
+                { nombre: usuario.nombre, email: usuario.email, estado: estadoTexto },
+                'usuarios'
+            );
         }
-        
-        // Restar el gasto del total de efectivo (por defecto)
-        data.totalEfectivo = (data.totalEfectivo || 0) - monto;
-        
-        // Si el totalEfectivo queda negativo, ajustarlo a 0
-        if (data.totalEfectivo < 0) {
-            data.totalEfectivo = 0;
-        }
-        
-        return data;
-    }).then((result) => {
-        console.log('✅ Caja actualizada con gasto. Nuevo totalEfectivo:', result.snapshot.val()?.totalEfectivo);
-    }).catch((error) => {
-        console.error('❌ Error al actualizar caja con gasto:', error);
+        mostrarModalUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> ${estadoTexto} exitosamente.`, "success");
+    })
+    .catch((error) => {
+        console.error("Error al cambiar estado del usuario:", error);
+        mostrarModalUsuarios("No se pudo cambiar el estado del usuario.", "danger");
     });
 }
 
 // ==========================================================================
-// ELIMINAR GASTO
+// FUNCIÓN PARA SINCRONIZAR USUARIO ACTUAL
 // ==========================================================================
 
-function eliminarGasto(gastoId) {
-    if (!gastoId) return;
-
-    // Confirmar eliminación con modal de Bootstrap
-    if (!confirm('¿Estás seguro de eliminar este gasto? Esta acción no se puede deshacer.')) {
-        return;
-    }
-
-    const fechaHoy = new Date().toISOString().split('T')[0];
-    const gastoRef = firebase.database().ref('gastos/' + fechaHoy + '/' + gastoId);
-
-    // Obtener el monto del gasto antes de eliminarlo
-    gastoRef.once('value')
+function sincronizarUsuarioActualConAuth() {
+    const auth = obtenerAuth();
+    const refUsuarios = obtenerReferenciaUsuarios();
+    
+    if (!auth || !refUsuarios) return;
+    
+    const usuario = auth.currentUser;
+    if (!usuario) return;
+    
+    refUsuarios.child(usuario.uid).once('value')
         .then((snapshot) => {
             if (!snapshot.exists()) {
-                throw new Error('El gasto no existe');
+                console.warn(`AVISO: El usuario ${usuario.email} tiene cuenta de login pero no tiene ficha en la base de datos. Créelo manualmente.`);
+            } else {
+                cargarUsuariosDesdeAuthYRoles();
             }
-            const gasto = snapshot.val();
-            const monto = parseFloat(gasto.monto) || 0;
-
-            // Eliminar el gasto
-            return gastoRef.remove().then(() => {
-                // Devolver el monto a la caja
-                return { monto };
-            });
-        })
-        .then((resultado) => {
-            console.log('✅ Gasto eliminado exitosamente');
-            
-            // Devolver el monto a la caja
-            devolverGastoACaja(resultado.monto);
-            
-            // Mostrar mensaje de éxito
-            mostrarExitoGasto('✅ Gasto eliminado. Se ha devuelto S/ ' + resultado.monto.toFixed(2) + ' a la caja.');
         })
         .catch((error) => {
-            console.error('❌ Error al eliminar gasto:', error);
-            mostrarErrorGasto('❌ Error al eliminar el gasto: ' + error.message);
+            console.error("Error al sincronizar usuario:", error);
         });
 }
-
-// ==========================================================================
-// DEVOLVER GASTO A CAJA
-// ==========================================================================
-
-function devolverGastoACaja(monto) {
-    const fechaHoy = new Date().toISOString().split('T')[0];
-    const cajaRef = firebase.database().ref('cajas/' + fechaHoy);
-
-    cajaRef.transaction((data) => {
-        if (data === null) {
-            return null;
-        }
-        
-        // Sumar el monto devuelto al total de efectivo
-        data.totalEfectivo = (data.totalEfectivo || 0) + monto;
-        
-        return data;
-    }).then((result) => {
-        console.log('✅ Caja actualizada con devolución de gasto. Nuevo totalEfectivo:', result.snapshot.val()?.totalEfectivo);
-    }).catch((error) => {
-        console.error('❌ Error al devolver gasto a caja:', error);
-    });
-}
-
-// ==========================================================================
-// FUNCIONES DE UTILERÍA PARA ERRORES Y MENSAJES
-// ==========================================================================
-
-function mostrarErrorGasto(mensaje, inputFoco = null) {
-    const container = document.getElementById('gastoErrorContainer');
-    if (!container) return;
-
-    container.innerHTML = `
-        <div class="alert alert-danger alert-dismissible fade show d-flex align-items-center" role="alert">
-            <i class="bi bi-exclamation-circle fs-4 me-3"></i>
-            <div>
-                <span>${mensaje}</span>
-            </div>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-        </div>
-    `;
-
-    if (inputFoco) {
-        inputFoco.classList.add('is-invalid');
-        setTimeout(() => {
-            inputFoco.focus();
-        }, 100);
-    }
-
-    // Auto-cerrar después de 8 segundos
-    setTimeout(() => {
-        const alert = container.querySelector('.alert');
-        if (alert) {
-            const bsAlert = bootstrap.Alert.getOrCreateInstance(alert);
-            bsAlert.close();
-        }
-    }, 8000);
-}
-
-function mostrarExitoGasto(mensaje) {
-    const container = document.getElementById('gastoErrorContainer');
-    if (!container) return;
-
-    container.innerHTML = `
-        <div class="alert alert-success alert-dismissible fade show d-flex align-items-center" role="alert">
-            <i class="bi bi-check-circle fs-4 me-3"></i>
-            <div>
-                <span>${mensaje}</span>
-            </div>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Cerrar"></button>
-        </div>
-    `;
-
-    // Auto-cerrar después de 5 segundos
-    setTimeout(() => {
-        const alert = container.querySelector('.alert');
-        if (alert) {
-            const bsAlert = bootstrap.Alert.getOrCreateInstance(alert);
-            bsAlert.close();
-        }
-    }, 5000);
-}
-
-function limpiarErroresGasto() {
-    const container = document.getElementById('gastoErrorContainer');
-    if (container) {
-        container.innerHTML = '';
-    }
-    
-    const inputs = document.querySelectorAll('.is-invalid');
-    inputs.forEach(input => {
-        input.classList.remove('is-invalid');
-    });
-}
-
-// ==========================================================================
-// FUNCIÓN PARA VERIFICAR SI EL USUARIO ES ADMINISTRADOR
-// ==========================================================================
-
-function esAdministrador() {
-    const usuarioData = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
-    return usuarioData.rol === 'admin';
-}
-
-console.log('✅ Módulo gastos.js cargado correctamente');
