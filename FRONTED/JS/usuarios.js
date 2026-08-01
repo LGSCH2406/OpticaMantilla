@@ -3,34 +3,96 @@
 // ==========================================================================
 
 // ==========================================================================
-// VALIDACIÓN DE SEGURIDAD AL CARGAR LA PÁGINA DE USUARIOS
+// FUNCIÓN MODAL PARA MOSTRAR MENSAJES (BOOTSTRAP)
 // ==========================================================================
-(function validarAccesoUsuarios() {
+
+function mostrarModalUsuarios(mensaje, tipo = "success", titulo = null) {
+    let icono = "bi-check-circle-fill";
+    let color = "success";
+    let tituloDefault = "Éxito";
+    
+    if (tipo === "danger" || tipo === "error") {
+        icono = "bi-x-circle-fill";
+        color = "danger";
+        tituloDefault = "Error";
+    } else if (tipo === "warning") {
+        icono = "bi-exclamation-triangle-fill";
+        color = "warning";
+        tituloDefault = "Advertencia";
+    } else if (tipo === "info") {
+        icono = "bi-info-circle-fill";
+        color = "info";
+        tituloDefault = "Información";
+    }
+    
+    const tituloFinal = titulo || tituloDefault;
+
+    const modalHTML = `
+        <div class="modal fade" id="modalMensajeUsuarios" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+            <div class="modal-dialog modal-dialog-centered modal-sm">
+                <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+                    <div class="modal-header border-0 bg-${color} text-white py-3" style="border-radius: 12px 12px 0 0;">
+                        <h5 class="modal-title fw-bold mx-auto">
+                            <i class="bi ${icono} me-2"></i>
+                            ${tituloFinal}
+                        </h5>
+                    </div>
+                    <div class="modal-body p-4 text-center">
+                        <p class="mb-0 text-dark">${mensaje}</p>
+                    </div>
+                    <div class="modal-footer border-0 bg-light py-3 justify-content-center" style="border-radius: 0 0 12px 12px;">
+                        <button type="button" class="btn btn-${color} px-4 fw-bold" data-bs-dismiss="modal" style="border-radius: 8px;">
+                            Aceptar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const modalExistente = document.getElementById('modalMensajeUsuarios');
+    if (modalExistente) {
+        modalExistente.remove();
+    }
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    const modalElement = document.getElementById('modalMensajeUsuarios');
+    const modalInstance = new bootstrap.Modal(modalElement, {
+        backdrop: 'static',
+        keyboard: false
+    });
+    modalInstance.show();
+
+    modalElement.addEventListener('hidden.bs.modal', function() {
+        setTimeout(() => {
+            modalElement.remove();
+        }, 300);
+    });
+}
+
+// ==========================================================================
+// VALIDACIÓN DE ACCESO (se ejecuta SOLO al entrar al módulo)
+// ==========================================================================
+
+function validarAccesoUsuarios() {
     const usuarioLogueado = JSON.parse(sessionStorage.getItem('usuarioLogueado'));
     
-    // Si no está logueado o su rol no es admin ni administrador
     if (!usuarioLogueado || (usuarioLogueado.rol !== 'admin' && usuarioLogueado.rol !== 'administrador')) {
-        // Forzamos la carga del Dashboard en lugar de abrir el módulo de usuarios
-        if (typeof cargarModulo === 'function') {
-            cargarModulo();
-        } else {
-            // Fallback si cargarModulo no está disponible
-            window.location.href = '#';
-        }
-        // Mostramos un mensaje de alerta
-        setTimeout(() => {
-            mostrarAlertaUsuarios("Acceso denegado. No tienes permisos para ver esta sección.", "danger");
-        }, 100);
-        return;
+        mostrarModalUsuarios("Acceso denegado. No tienes permisos para ver esta sección.", "danger");
+        return false;
     }
-})();
+    return true;
+}
 
-// (El resto de tu código original de usuarios.js continúa aquí abajo...)
-let usuariosAlmacen = {}; // Estructura: { uid: { email, nombre, codigo, rol, activo } }
+// ==========================================================================
+// VARIABLES GLOBALES
+// ==========================================================================
+
+let usuariosAlmacen = {};
 let rolesAlmacen = ['admin', 'ventas', 'optometra'];
 let accionSeguridadPendienteUsuarios = null;
 const CLAVE_SEGURIDAD_USUARIOS = "24060102";
-
 const USUARIO_ADMIN_PRINCIPAL = "gus24060102@gmail.com";
 
 // ==========================================================================
@@ -132,10 +194,8 @@ function mostrarModalConfirmacionSeguridad(titulo, mensaje, callbackAceptar) {
     });
     modalInstance.show();
 
-    // Configurar evento de confirmación
     const btnConfirmar = document.getElementById('btnConfirmarSeguridad');
     
-    // Limpiar eventos previos clonando el botón
     btnConfirmar.replaceWith(btnConfirmar.cloneNode(true));
     const nuevoBtn = document.getElementById('btnConfirmarSeguridad');
 
@@ -173,10 +233,85 @@ function mostrarModalConfirmacionSeguridad(titulo, mensaje, callbackAceptar) {
 }
 
 // ==========================================================================
+// MODAL DE CONFIRMACIÓN PARA ELIMINAR USUARIO (BOOTSTRAP)
+// ==========================================================================
+
+function mostrarModalConfirmacionEliminar(uid, nombreUsuario, callbackEliminar) {
+    const modalHTML = `
+        <div class="modal fade" id="modalConfirmarEliminarUsuario" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content border-0 shadow" style="border-radius: 12px;">
+                    <div class="modal-header border-0 bg-danger py-3" style="border-radius: 12px 12px 0 0;">
+                        <h5 class="modal-title fw-bold text-white">
+                            <i class="bi bi-exclamation-triangle-fill me-2"></i>
+                            Confirmar Eliminación
+                        </h5>
+                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                    </div>
+                    <div class="modal-body p-4 text-center">
+                        <div class="mb-3">
+                            <i class="bi bi-person-x-fill text-danger" style="font-size: 3rem;"></i>
+                        </div>
+                        <h6 class="fw-bold text-dark mb-2">¿Eliminar usuario?</h6>
+                        <p class="text-muted mb-3">
+                            ¿Estás seguro de eliminar al usuario <strong>"${nombreUsuario}"</strong>?
+                            <br><span class="small text-danger">Esta acción no se puede deshacer.</span>
+                        </p>
+                    </div>
+                    <div class="modal-footer border-0 bg-light py-3 justify-content-center gap-2" style="border-radius: 0 0 12px 12px;">
+                        <button type="button" class="btn btn-secondary px-4 fw-semibold" data-bs-dismiss="modal" style="border-radius: 8px;">
+                            Cancelar
+                        </button>
+                        <button type="button" class="btn btn-danger px-4 fw-bold" id="btnConfirmarEliminarUsuario" style="border-radius: 8px;">
+                            <i class="bi bi-trash3 me-1"></i> Sí, Eliminar
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const modalExistente = document.getElementById('modalConfirmarEliminarUsuario');
+    if (modalExistente) {
+        modalExistente.remove();
+    }
+
+    document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+    const modalElement = document.getElementById('modalConfirmarEliminarUsuario');
+    const modalInstance = new bootstrap.Modal(modalElement, {
+        backdrop: 'static',
+        keyboard: false
+    });
+    modalInstance.show();
+
+    document.getElementById('btnConfirmarEliminarUsuario').addEventListener('click', function() {
+        modalInstance.hide();
+        setTimeout(() => {
+            modalElement.remove();
+            if (typeof callbackEliminar === 'function') {
+                callbackEliminar();
+            }
+        }, 300);
+    });
+
+    modalElement.addEventListener('hidden.bs.modal', function() {
+        setTimeout(() => {
+            modalElement.remove();
+        }, 300);
+    });
+}
+
+// ==========================================================================
 // FUNCIÓN PRINCIPAL - CARGAR MÓDULO DE USUARIOS
 // ==========================================================================
 
 function cargarModuloUsuarios() {
+    // === VALIDACIÓN DE ACCESO ===
+    if (!validarAccesoUsuarios()) {
+        return;
+    }
+
     const contenedor = document.getElementById('contenidoDinamico');
     if (!contenedor) return;
 
@@ -186,8 +321,6 @@ function cargarModuloUsuarios() {
 
     contenedor.innerHTML = `
         <div class="animate__animated animate__fadeIn position-relative">
-
-            <div id="contenedorAlertasUsuarios" class="position-fixed top-0 end-0 p-3" style="z-index: 1060; max-width: 350px;"></div>
 
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div>
@@ -353,7 +486,6 @@ function cargarModuloUsuarios() {
         </div>
     `;
 
-    // Inicializar lógica y cargar datos
     inicializarLogicaUsuarios();
     cargarUsuariosDesdeAuthYRoles();
     renderizarListaRolesUI();
@@ -368,7 +500,7 @@ function cargarUsuariosDesdeAuthYRoles() {
     const refUsuarios = obtenerReferenciaUsuarios();
     
     if (!auth) {
-        mostrarAlertaUsuarios("No se pudo conectar con Firebase Authentication.", "danger");
+        mostrarModalUsuarios("No se pudo conectar con Firebase Authentication.", "danger");
         return;
     }
 
@@ -379,10 +511,9 @@ function cargarUsuariosDesdeAuthYRoles() {
             actualizarTablaUsuarios();
         }, (error) => {
             console.error("Error leyendo usuarios:", error);
-            mostrarAlertaUsuarios("Error al leer los datos de usuarios.", "danger");
+            mostrarModalUsuarios("Error al leer los datos de usuarios.", "danger");
         });
     } else {
-        // Fallback: intentar leer usuarios desde Auth (limitado en cliente)
         const usuarioActual = auth.currentUser;
         if (usuarioActual) {
             const refUsuario = refUsuarios ? refUsuarios.child(usuarioActual.uid) : null;
@@ -400,7 +531,7 @@ function cargarUsuariosDesdeAuthYRoles() {
 }
 
 // ==========================================================================
-// ACTUALIZAR TABLA DE USUARIOS (Botones arreglados aquí)
+// ACTUALIZAR TABLA DE USUARIOS
 // ==========================================================================
 
 function actualizarTablaUsuarios() {
@@ -436,7 +567,6 @@ function actualizarTablaUsuarios() {
 
         const badgeAdmin = esAdminPrincipal ? '<span class="badge bg-warning text-dark ms-1"><i class="bi bi-star-fill me-1"></i>Principal</span>' : '';
 
-        // NOTA: Aquí se llaman a las funciones directamente pasando el UID
         htmlFilas += `
             <tr class="item-usuario-fila" data-uid="${uid}">
                 <td>
@@ -549,34 +679,6 @@ function togglePasswordUsuario() {
 }
 
 // ==========================================================================
-// ALERTAS FLOTANTES
-// ==========================================================================
-
-function mostrarAlertaUsuarios(mensaje, tipo = "success") {
-    const contenedor = document.getElementById('contenedorAlertasUsuarios');
-    if (!contenedor) return;
-
-    const idAlerta = 'alert-usu-' + Date.now();
-    const icono = tipo === "success" ? "bi-check-circle-fill" : (tipo === "danger" ? "bi-x-circle-fill" : "bi-exclamation-triangle-fill");
-
-    contenedor.innerHTML += `
-        <div id="${idAlerta}" class="alert alert-${tipo} d-flex align-items-center alert-dismissible fade show shadow animate__animated animate__fadeInRight" role="alert" style="border-radius: 8px;">
-            <i class="bi ${icono} me-2 fs-5"></i>
-            <div>${mensaje}</div>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    `;
-
-    setTimeout(() => {
-        const el = document.getElementById(idAlerta);
-        if (el) {
-            el.classList.replace('animate__fadeInRight', 'animate__fadeOutRight');
-            setTimeout(() => el.remove(), 500);
-        }
-    }, 4000);
-}
-
-// ==========================================================================
 // GESTIÓN DE ROLES
 // ==========================================================================
 
@@ -622,7 +724,7 @@ window.eliminarRol = function(index) {
     
     const tieneUsuarios = Object.values(usuariosAlmacen).some(u => u.rol === rolAEliminar);
     if (tieneUsuarios) {
-        mostrarAlertaUsuarios(`No puedes eliminar el rol <strong>"${rolAEliminar}"</strong> porque hay usuarios que lo tienen asignado.`, "danger");
+        mostrarModalUsuarios(`No puedes eliminar el rol <strong>"${rolAEliminar}"</strong> porque hay usuarios que lo tienen asignado.`, "danger");
         return;
     }
 
@@ -632,7 +734,7 @@ window.eliminarRol = function(index) {
         function() {
             rolesAlmacen.splice(index, 1);
             persistirRoles();
-            mostrarAlertaUsuarios(`Rol <strong>"${rolAEliminar}"</strong> eliminado.`, "danger");
+            mostrarModalUsuarios(`Rol <strong>"${rolAEliminar}"</strong> eliminado.`, "danger");
             limpiarFormularioRol();
             renderizarListaRolesUI();
             actualizarSelectoresRoles();
@@ -693,26 +795,26 @@ function inicializarLogicaUsuarios() {
             const nombreRol = inputRol.value.trim().toLowerCase();
 
             if (!nombreRol) {
-                mostrarAlertaUsuarios("Ingrese un nombre para el rol.", "warning");
+                mostrarModalUsuarios("Ingrese un nombre para el rol.", "warning");
                 return;
             }
 
             if (indexEdicion === -1) {
                 if (rolesAlmacen.includes(nombreRol)) {
-                    mostrarAlertaUsuarios("El rol ya existe.", "danger");
+                    mostrarModalUsuarios("El rol ya existe.", "danger");
                     return;
                 }
                 rolesAlmacen.push(nombreRol);
-                mostrarAlertaUsuarios(`Rol <strong>${nombreRol}</strong> agregado.`, "success");
+                mostrarModalUsuarios(`Rol <strong>${nombreRol}</strong> agregado.`, "success");
             } else {
                 const rolAnterior = rolesAlmacen[indexEdicion];
                 const tieneUsuarios = Object.values(usuariosAlmacen).some(u => u.rol === rolAnterior);
                 if (tieneUsuarios && rolAnterior !== nombreRol) {
-                    mostrarAlertaUsuarios(`No puedes cambiar el nombre del rol <strong>"${rolAnterior}"</strong> porque hay usuarios que lo tienen asignado.`, "danger");
+                    mostrarModalUsuarios(`No puedes cambiar el nombre del rol <strong>"${rolAnterior}"</strong> porque hay usuarios que lo tienen asignado.`, "danger");
                     return;
                 }
                 rolesAlmacen[indexEdicion] = nombreRol;
-                mostrarAlertaUsuarios(`Rol actualizado con éxito.`, "success");
+                mostrarModalUsuarios(`Rol actualizado con éxito.`, "success");
                 limpiarFormularioRol();
             }
 
@@ -733,12 +835,12 @@ function guardarUsuario() {
     const auth = obtenerAuth();
     
     if (!refUsuarios) {
-        mostrarAlertaUsuarios("No se pudo conectar con Firebase Database.", "danger");
+        mostrarModalUsuarios("No se pudo conectar con Firebase Database.", "danger");
         return;
     }
     
     if (!auth) {
-        mostrarAlertaUsuarios("No se pudo conectar con Firebase Authentication.", "danger");
+        mostrarModalUsuarios("No se pudo conectar con Firebase Authentication.", "danger");
         return;
     }
 
@@ -752,7 +854,7 @@ function guardarUsuario() {
     const btnGuardar = document.getElementById('btnGuardarUsuario');
 
     if (!nombre || !email || !codigo || !rol) {
-        mostrarAlertaUsuarios("Todos los campos obligatorios deben ser completados.", "warning");
+        mostrarModalUsuarios("Todos los campos obligatorios deben ser completados.", "warning");
         return;
     }
 
@@ -767,57 +869,49 @@ function guardarUsuario() {
         actualizadoEn: new Date().toISOString()
     };
 
-    // --- MODO EDICIÓN ---
     if (uidOriginal) {
         const usuarioExistente = usuariosAlmacen[uidOriginal];
         if (usuarioExistente && usuarioExistente.email === USUARIO_ADMIN_PRINCIPAL) {
-            mostrarAlertaUsuarios("El administrador principal no puede ser modificado.", "warning");
+            mostrarModalUsuarios("El administrador principal no puede ser modificado.", "warning");
             btnGuardar.disabled = false;
             return;
         }
 
-        // Actualizar solo en Realtime DB (no se puede cambiar email en Auth desde cliente)
         refUsuarios.child(uidOriginal).update(datosUsuario)
             .then(() => {
-                mostrarAlertaUsuarios(`Usuario <strong>${nombre}</strong> actualizado exitosamente.`, "success");
+                mostrarModalUsuarios(`Usuario <strong>${nombre}</strong> actualizado exitosamente.`, "success");
                 document.getElementById('formFichaUsuario').reset();
                 cerrarModalUsuario();
             })
             .catch((error) => {
                 console.error("Error al actualizar usuario:", error);
-                mostrarAlertaUsuarios("Error al actualizar el usuario.", "danger");
+                mostrarModalUsuarios("Error al actualizar el usuario.", "danger");
             })
             .finally(() => { btnGuardar.disabled = false; });
         return;
     }
 
-    // --- MODO CREACIÓN ---
     if (!password || password.length < 6) {
-        mostrarAlertaUsuarios("La contraseña debe tener al menos 6 caracteres.", "warning");
+        mostrarModalUsuarios("La contraseña debe tener al menos 6 caracteres.", "warning");
         btnGuardar.disabled = false;
         return;
     }
     if (password !== passwordConfirm) {
-        mostrarAlertaUsuarios("Las contraseñas no coinciden.", "warning");
+        mostrarModalUsuarios("Las contraseñas no coinciden.", "warning");
         btnGuardar.disabled = false;
         return;
     }
 
-    // Crear usuario en Firebase Auth
     auth.createUserWithEmailAndPassword(email, password)
         .then((userCredential) => {
             const uid = userCredential.user.uid;
             datosUsuario.creadoEn = new Date().toISOString();
             datosUsuario.uid = uid;
             
-            // Guardar datos adicionales en Realtime DB
             return refUsuarios.child(uid).set(datosUsuario);
         })
         .then(() => {
-            mostrarAlertaUsuarios(
-                `<i class="bi bi-check-circle-fill me-2"></i> Usuario <strong>${nombre}</strong> registrado exitosamente.`,
-                "success"
-            );
+            mostrarModalUsuarios(`Usuario <strong>${nombre}</strong> registrado exitosamente.`, "success");
             document.getElementById('formFichaUsuario').reset();
             cerrarModalUsuario();
         })
@@ -831,7 +925,7 @@ function guardarUsuario() {
             } else if (error.code === 'auth/invalid-email') {
                 mensaje = "El formato del correo electrónico no es válido.";
             }
-            mostrarAlertaUsuarios(mensaje, "danger");
+            mostrarModalUsuarios(mensaje, "danger");
         })
         .finally(() => { btnGuardar.disabled = false; });
 }
@@ -862,41 +956,48 @@ window.prepararFormularioUsuarioNuevo = function () {
 };
 
 // ==========================================================================
-// AUTORIZACIÓN DE SEGURIDAD PARA ACCIONES (NUEVO FLUJO CORREGIDO)
+// AUTORIZACIÓN DE SEGURIDAD PARA ACCIONES (CORREGIDO)
 // ==========================================================================
 
 window.solicitarAutorizacionSeguridadUsuarios = function (tipo, uid) {
-    // Guardamos la acción pendiente en el objeto global
-    accionSeguridadPendienteUsuarios = { 
-        tipo: tipo, 
-        uid: uid 
-    };
-
-    // Limpiamos y abrimos el modal
-    const passInput = document.getElementById('passSeguridadUsuarios');
-    if(passInput) passInput.value = "";
-    
-    // En lugar de usar el modal estático, usamos el dinámico que tiene el callback
-    mostrarModalConfirmacionSeguridad(
-        'Autorización Requerida',
-        `Debes ingresar la clave de seguridad para realizar esta acción.`,
-        function() {
-            // Este callback se ejecuta cuando la clave es correcta
-            if (accionSeguridadPendienteUsuarios) {
-                const { tipo, uid } = accionSeguridadPendienteUsuarios;
-                accionSeguridadPendienteUsuarios = null; // Limpiamos la variable global
-
-                // Ejecutamos la acción correspondiente
-                if (tipo === 'editar') ejecutarEdicionUsuario(uid);
-                else if (tipo === 'eliminar') ejecutarEliminacionUsuario(uid);
-                else if (tipo === 'toggle') ejecutarToggleUsuario(uid);
+    if (tipo === 'eliminar') {
+        // Para eliminar: primero pedir clave, luego confirmar, luego eliminar
+        mostrarModalConfirmacionSeguridad(
+            'Autorización Requerida',
+            `Debes ingresar la clave de seguridad para eliminar este usuario.`,
+            function() {
+                // Clave correcta - ahora mostramos confirmación
+                const usuario = usuariosAlmacen[uid];
+                if (usuario) {
+                    mostrarModalConfirmacionEliminar(uid, usuario.nombre || 'Usuario', function() {
+                        // Confirmado - ejecutar eliminación
+                        ejecutarEliminacionUsuario(uid);
+                    });
+                }
             }
-        }
-    );
+        );
+    } else {
+        // Para editar y toggle: solo pedir clave
+        accionSeguridadPendienteUsuarios = { tipo, uid };
+
+        mostrarModalConfirmacionSeguridad(
+            'Autorización Requerida',
+            `Debes ingresar la clave de seguridad para realizar esta acción.`,
+            function() {
+                if (accionSeguridadPendienteUsuarios) {
+                    const { tipo, uid } = accionSeguridadPendienteUsuarios;
+                    accionSeguridadPendienteUsuarios = null;
+
+                    if (tipo === 'editar') ejecutarEdicionUsuario(uid);
+                    else if (tipo === 'toggle') ejecutarToggleUsuario(uid);
+                }
+            }
+        );
+    }
 };
 
 // ==========================================================================
-// EJECUTAR EDICIÓN DE USUARIO (CAMBIOS PARA BLOQUEAR EL CÓDIGO)
+// EJECUTAR EDICIÓN DE USUARIO
 // ==========================================================================
 
 function ejecutarEdicionUsuario(uid) {
@@ -904,7 +1005,7 @@ function ejecutarEdicionUsuario(uid) {
     if (!usuario) return;
 
     if (usuario.email === USUARIO_ADMIN_PRINCIPAL) {
-        mostrarAlertaUsuarios("El administrador principal no puede ser modificado.", "warning");
+        mostrarModalUsuarios("El administrador principal no puede ser modificado.", "warning");
         return;
     }
 
@@ -918,8 +1019,7 @@ function ejecutarEdicionUsuario(uid) {
     document.getElementById('usuPassword').required = false;
     document.getElementById('usuPasswordConfirm').required = false;
 
-    // *** CAMBIO IMPORTANTE: BLOQUEAMOS EL CÓDIGO EN MODO EDICIÓN PARA EVITAR DUPLICADOS ***
-    document.getElementById('usuCodigo').disabled = true; 
+    document.getElementById('usuCodigo').disabled = true;
 
     document.getElementById('tituloModalUsuario').innerHTML = `<i class="bi bi-pencil-square text-success me-2"></i>Modificar Usuario`;
     document.getElementById('btnGuardarUsuario').className = "btn btn-success py-2 fw-semibold";
@@ -930,7 +1030,7 @@ function ejecutarEdicionUsuario(uid) {
 };
 
 // ==========================================================================
-// EJECUTAR ELIMINACIÓN DE USUARIO (Auth + Realtime DB)
+// EJECUTAR ELIMINACIÓN DE USUARIO
 // ==========================================================================
 
 function ejecutarEliminacionUsuario(uid) {
@@ -941,27 +1041,23 @@ function ejecutarEliminacionUsuario(uid) {
     if (!refUsuarios || !usuario || !auth) return;
 
     if (usuario.email === USUARIO_ADMIN_PRINCIPAL) {
-        mostrarAlertaUsuarios(
-            '<i class="bi bi-shield-lock-fill me-2"></i> <strong>No se puede eliminar</strong> al administrador principal del sistema.',
-            "danger"
-        );
+        mostrarModalUsuarios("No se puede eliminar al administrador principal del sistema.", "danger");
         return;
     }
 
     const usuarioLogueado = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
     if (usuario.email === usuarioLogueado.email) {
-        mostrarAlertaUsuarios("No puedes eliminar tu propio usuario.", "danger");
+        mostrarModalUsuarios("No puedes eliminar tu propio usuario.", "danger");
         return;
     }
 
-    // Eliminar de Realtime DB (Nota: Para Auth necesitas Admin SDK en el backend)
     refUsuarios.child(uid).remove()
         .then(() => {
-            mostrarAlertaUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> eliminado del sistema.`, "danger");
+            mostrarModalUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> eliminado del sistema.`, "danger");
         })
         .catch((error) => {
             console.error("Error al eliminar usuario:", error);
-            mostrarAlertaUsuarios("No se pudo eliminar el usuario.", "danger");
+            mostrarModalUsuarios("No se pudo eliminar el usuario.", "danger");
         });
 }
 
@@ -975,16 +1071,13 @@ function ejecutarToggleUsuario(uid) {
     if (!refUsuarios || !usuario) return;
 
     if (usuario.email === USUARIO_ADMIN_PRINCIPAL) {
-        mostrarAlertaUsuarios(
-            '<i class="bi bi-shield-lock-fill me-2"></i> <strong>No se puede desactivar</strong> al administrador principal del sistema.',
-            "danger"
-        );
+        mostrarModalUsuarios("No se puede desactivar al administrador principal del sistema.", "danger");
         return;
     }
 
     const usuarioLogueado = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
     if (usuario.email === usuarioLogueado.email) {
-        mostrarAlertaUsuarios("No puedes modificar tu propio estado.", "warning");
+        mostrarModalUsuarios("No puedes modificar tu propio estado.", "warning");
         return;
     }
 
@@ -996,16 +1089,16 @@ function ejecutarToggleUsuario(uid) {
         actualizadoEn: new Date().toISOString()
     })
     .then(() => {
-        mostrarAlertaUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> ${estadoTexto} exitosamente.`, "success");
+        mostrarModalUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> ${estadoTexto} exitosamente.`, "success");
     })
     .catch((error) => {
         console.error("Error al cambiar estado del usuario:", error);
-        mostrarAlertaUsuarios("No se pudo cambiar el estado del usuario.", "danger");
+        mostrarModalUsuarios("No se pudo cambiar el estado del usuario.", "danger");
     });
 }
 
 // ==========================================================================
-// FUNCIÓN PARA SINCRONIZAR USUARIO ACTUAL (al hacer login) - ¡CORREGIDA!
+// FUNCIÓN PARA SINCRONIZAR USUARIO ACTUAL
 // ==========================================================================
 
 function sincronizarUsuarioActualConAuth() {
@@ -1020,7 +1113,6 @@ function sincronizarUsuarioActualConAuth() {
     refUsuarios.child(usuario.uid).once('value')
         .then((snapshot) => {
             if (!snapshot.exists()) {
-                // *** CAMBIO CRUCIAL: Ya NO creamos usuarios automáticos ***
                 console.warn(`AVISO: El usuario ${usuario.email} tiene cuenta de login pero no tiene ficha en la base de datos. Créelo manualmente.`);
             } else {
                 cargarUsuariosDesdeAuthYRoles();
