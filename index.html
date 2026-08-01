@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema Óptica Mantilla - Autenticación</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" />
+
+    <link rel="stylesheet" href="FRONTED/CSS/estilos.css">
+</head>
+
+<body class="bg-light">
+
+    <!-- ==================== VISTA LOGIN ==================== -->
+    <div id="vistaLogin" class="d-flex align-items-center justify-content-center min-vh-100 p-3">
+        <div class="card border-0 shadow-lg p-4 animate__animated animate__fadeIn"
+            style="width: 100%; max-width: 420px; border-radius: 16px;">
+
+            <div class="text-center mb-4">
+                <div class="mb-3">
+                    <img src="FRONTED/ASSETS/IMG/optica_mantilla.png" alt="Logo" class="img-fluid"
+                        style="max-height: 290px; object-fit: contain;">
+                </div>
+                <h3 class="fw-bold text-dark mb-1">Óptica Mantilla</h3>
+                <p class="text-muted small">Ingresa tus credenciales para acceder al sistema</p>
+            </div>
+
+            <div id="alertContainer" class="mb-3"></div>
+
+            <form id="loginForm">
+                <div class="form-floating mb-3">
+                    <input type="email" class="form-control" id="email" placeholder="correo@ejemplo.com" required
+                        style="border-radius: 10px;">
+                    <label for="email"><i class="bi bi-envelope me-2 text-muted"></i>Correo Electrónico</label>
+                </div>
+
+                <div class="input-group mb-4" style="border-radius: 10px; overflow: hidden;">
+                    <div class="form-floating flex-grow-1">
+                        <input type="password" class="form-control" id="password" placeholder="Contraseña" required
+                            style="border-radius: 10px 0 0 10px;">
+                        <label for="password"><i class="bi bi-lock me-2 text-muted"></i>Contraseña</label>
+                    </div>
+                    <button class="btn btn-outline-secondary border" type="button" id="togglePassword"
+                        style="border-radius: 0 10px 10px 0; background-color: #fff; border-left: none !important;">
+                        <i class="bi bi-eye text-muted" id="eyeIcon"></i>
+                    </button>
+                </div>
+
+                <button class="btn btn-primary w-100 py-3 fw-bold shadow-sm" type="submit" id="btnLogin"
+                    style="border-radius: 10px; transition: all 0.3s ease;">
+                    <i class="bi bi-box-arrow-in-right me-2"></i>Ingresar al Sistema
+                </button>
+            </form>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL APERTURA DE CAJA ==================== -->
+    <div class="modal fade" id="modalAperturaCaja" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 16px;">
+                <div class="modal-header border-0 bg-success text-white py-3" style="border-radius: 16px 16px 0 0;">
+                    <h5 class="modal-title fw-bold mx-auto">
+                        <i class="bi bi-cash-stack me-2"></i>Apertura de Caja
+                    </h5>
+                </div>
+                <div class="modal-body p-4 text-center">
+                    <p class="text-muted mb-3">Bienvenido al sistema. Para comenzar, ingrese el monto inicial en efectivo.</p>
+                    
+                    <div class="input-group input-group-lg mb-3 mx-auto" style="max-width: 300px;">
+                        <span class="input-group-text bg-light fw-bold">S/</span>
+                        <input type="number" id="montoAperturaCaja" class="form-control text-center fw-bold" placeholder="0.00" step="0.01" min="0" value="0.00">
+                    </div>
+                </div>
+                <div class="modal-footer border-0 bg-light py-3 justify-content-center" style="border-radius: 0 0 16px 16px;">
+                    <button type="button" class="btn btn-success px-5 fw-bold" id="btnConfirmarApertura" style="border-radius: 8px;">
+                        <i class="bi bi-check-lg me-1"></i> Abrir Caja
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL CONFIRMACIÓN APERTURA ==================== -->
+    <div class="modal fade" id="modalConfirmacionApertura" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+                <div class="modal-header border-0 py-4" style="background: linear-gradient(135deg, #198754, #146c43);">
+                    <div class="text-center w-100">
+                        <div class="bg-white rounded-circle d-inline-flex align-items-center justify-content-center mb-2" 
+                             style="width: 70px; height: 70px;">
+                            <i class="bi bi-check-lg text-success" style="font-size: 2.5rem;"></i>
+                        </div>
+                        <h5 class="modal-title text-white fw-bold">¡Caja Aperturada!</h5>
+                    </div>
+                </div>
+                
+                <div class="modal-body p-4 text-center">
+                    <p class="text-muted mb-3">La caja ha sido aperturada exitosamente con el siguiente monto:</p>
+                    
+                    <div class="bg-light p-3 rounded-3 mb-3">
+                        <span class="text-muted small text-uppercase fw-bold">Monto Inicial</span>
+                        <h2 class="fw-bold text-success mb-0" id="montoConfirmacion">S/ 0.00</h2>
+                    </div>
+                    
+                    <div class="row g-2 mt-3">
+                        <div class="col-6">
+                            <div class="border rounded-3 p-2 bg-white">
+                                <small class="text-muted d-block">Estado</small>
+                                <span class="badge bg-success">Activa</span>
+                            </div>
+                        </div>
+                        <div class="col-6">
+                            <div class="border rounded-3 p-2 bg-white">
+                                <small class="text-muted d-block">Fecha</small>
+                                <span class="fw-bold small" id="fechaConfirmacion">--/--/----</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="modal-footer border-0 bg-light py-3 justify-content-center">
+                    <button type="button" class="btn btn-success px-5 fw-bold" id="btnCerrarConfirmacion" 
+                            style="border-radius: 8px; padding: 12px 40px;">
+                        <i class="bi bi-check-lg me-2"></i> Continuar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL CONFIRMACIÓN CIERRE DE CAJA ==================== -->
+    <div class="modal fade" id="modalConfirmarCierre" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+                <div class="modal-header border-0 py-4" style="background: linear-gradient(135deg, #ffc107, #e0a800);">
+                    <div class="text-center w-100">
+                        <div class="bg-white rounded-circle d-inline-flex align-items-center justify-content-center mb-2" 
+                             style="width: 70px; height: 70px;">
+                            <i class="bi bi-exclamation-triangle text-warning" style="font-size: 2.5rem;"></i>
+                        </div>
+                        <h5 class="modal-title text-dark fw-bold">¿Estás seguro de cerrar caja?</h5>
+                    </div>
+                </div>
+                <div class="modal-body p-4">
+                    <p class="text-muted mb-3 text-center">Esta acción guardará el total en las finanzas generales y no podrás modificarlo.</p>
+                    
+                    <div id="cuerpoResumenCierre" class="bg-light p-3 rounded-3 border mb-0">
+                        <!-- Se llena dinámicamente con JS -->
+                    </div>
+                </div>
+                <div class="modal-footer border-0 bg-light py-3 justify-content-center gap-2">
+                    <button type="button" class="btn btn-secondary px-4 fw-bold" data-bs-dismiss="modal" id="btnCancelarCierreModal" style="border-radius: 8px;">
+                        Cancelar
+                    </button>
+                    <button type="button" class="btn btn-danger px-4 fw-bold" id="btnAceptarCierreModal" style="border-radius: 8px;">
+                        Sí, Cerrar Caja
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL RESULTADO CIERRE DE CAJA ==================== -->
+    <div class="modal fade" id="modalResultadoCierre" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+                <div class="modal-header border-0 py-4" style="background: linear-gradient(135deg, #198754, #146c43);">
+                    <div class="text-center w-100">
+                        <div class="bg-white rounded-circle d-inline-flex align-items-center justify-content-center mb-2" 
+                             style="width: 70px; height: 70px;">
+                            <i class="bi bi-check-lg text-success" style="font-size: 2.5rem;"></i>
+                        </div>
+                        <h5 class="modal-title text-white fw-bold">¡Caja Cerrada Exitosamente!</h5>
+                    </div>
+                </div>
+                <div class="modal-body p-4 text-center">
+                    <div class="bg-light p-3 rounded-3 mb-3">
+                        <span class="text-muted small text-uppercase fw-bold">Total en Caja</span>
+                        <h2 class="fw-bold text-success mb-2" id="totalCajaCierre">S/ 0.00</h2>
+                        <hr>
+                        <span class="text-muted small text-uppercase fw-bold">Ganancia del Día</span>
+                        <h4 class="fw-bold text-dark mb-0" id="gananciaCierre">S/ 0.00</h4>
+                    </div>
+                </div>
+                <div class="modal-footer border-0 bg-light py-3 justify-content-center">
+                    <button type="button" class="btn btn-success px-5 fw-bold" id="btnContinuarCierre" style="border-radius: 8px; padding: 12px 40px;">
+                        <i class="bi bi-check-lg me-2"></i> Aceptar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== VISTA APLICACIÓN ==================== -->
+    <div id="appContainer" class="d-none min-vh-100 bg-light">
+        <nav class="navbar navbar-expand-lg navbar-dark bg-dark shadow-sm px-3 py-2 sticky-top">
+            <div class="container-fluid">
+                <a class="navbar-brand fw-bold d-flex align-items-center" href="#" onclick="cargarModulo()">
+                    <img src="FRONTED/ASSETS/IMG/optica_mantilla.png" alt="Logo" 
+                         style="height: 50px; margin-right: 18px; border-radius: 6px;">
+                    Óptica Mantilla
+                </a>
+                
+                <button class="navbar-toggler border-0" type="button" data-bs-toggle="collapse" data-bs-target="#navDashboard">
+                    <span class="navbar-toggler-icon"></span>
+                </button>
+                <div class="collapse navbar-collapse" id="navDashboard">
+                    <ul class="navbar-nav me-auto mb-2 mb-lg-0 mt-2 mt-lg-0">
+                        <li class="nav-item"><a class="nav-link rounded px-3" href="#" onclick="cargarModulo()"><i class="bi bi-speedometer2 me-1"></i> Dashboard</a></li>
+                        <li class="nav-item"><a class="nav-link rounded px-3" href="#" onclick="cargarModuloVentas()"><i class="bi bi-cart me-1"></i> Ventas</a></li>
+                        <li class="nav-item"><a class="nav-link rounded px-3" href="#" onclick="cargarModuloClientes()"><i class="bi bi-people me-1"></i> Clientes</a></li>
+                        <li class="nav-item"><a class="nav-link rounded px-3" href="#" onclick="cargarModuloAlmacen()"><i class="bi bi-box-seam me-1"></i> Almacén</a></li>
+                        <li class="nav-item"><a class="nav-link rounded px-3" href="#" onclick="cargarModuloCitas()"><i class="bi bi-calendar-event me-1"></i> Citas</a></li>
+                        
+                        <!-- Módulos solo para administradores -->
+                        <li class="nav-item solo-admin">
+                            <a class="nav-link rounded px-3" href="#" onclick="cargarModuloUsuarios()"><i class="bi bi-person-gear me-1"></i> Usuarios</a>
+                        </li>
+                        <li class="nav-item solo-admin">
+                            <a class="nav-link rounded px-3" href="#" onclick="cargarModuloGastos()"><i class="bi bi-wallet2 me-1"></i> Gastos</a>
+                        </li>
+                    </ul>
+                    <div class="d-flex align-items-center pt-2 pt-lg-0 border-top border-secondary border-lg-0">
+                        <span class="text-light opacity-75 me-3 small"><i class="bi bi-person-circle me-1"></i> <span id="nombreUsuario">Gustavo</span></span>
+                        <button id="btnSalir" class="btn btn-sm btn-outline-danger px-3" style="border-radius: 6px;"><i class="bi bi-box-arrow-left me-1"></i> Salir</button>
+                    </div>
+                </div>
+            </div>
+        </nav>
+        <div class="container-fluid p-4">
+            <main id="contenidoDinamico"></main>
+        </div>
+    </div>
+
+    <!-- ==================== MODAL DE CONFIRMACIÓN DE CIERRE DE SESIÓN ==================== -->
+    <div class="modal fade" id="modalConfirmarCerrarSesion" data-bs-backdrop="static" data-bs-keyboard="false" tabindex="-1" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content border-0 shadow-lg" style="border-radius: 16px; overflow: hidden;">
+                <div class="modal-header border-0 py-4 bg-danger" id="headerModalSalir">
+                    <div class="text-center w-100">
+                        <div class="bg-white rounded-circle d-inline-flex align-items-center justify-content-center mb-2" 
+                             style="width: 70px; height: 70px;">
+                            <i class="bi bi-box-arrow-right text-danger" style="font-size: 2.5rem;" id="iconoModalSalir"></i>
+                        </div>
+                        <h5 class="modal-title text-white fw-bold" id="tituloModalSalir">Cerrar Sesión</h5>
+                    </div>
+                </div>
+                <div class="modal-body p-4 text-center" id="bodyModalSalir">
+                    <p class="text-muted mb-0" id="mensajeModalSalir">¿Está seguro que desea cerrar la sesión actual?</p>
+                </div>
+                <div class="modal-footer border-0 bg-light py-3 justify-content-center gap-2">
+                    <button type="button" class="btn btn-secondary px-4 fw-bold" data-bs-dismiss="modal" id="btnCancelarSalir" style="border-radius: 8px;">
+                        Cancelar
+                    </button>
+                    <button type="button" class="btn btn-danger px-4 fw-bold" id="btnConfirmarSalir" style="border-radius: 8px;">
+                        <i class="bi bi-check-lg me-1"></i> Sí, Cerrar Sesión
+                    </button>
+                    <button type="button" class="btn btn-warning px-4 fw-bold d-none" id="btnEntendidoCaja" style="border-radius: 8px;">
+                        <i class="bi bi-house-door me-1"></i> Entendido, ir al Dashboard
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== SCRIPTS ==================== -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.8.0/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+
+    <script src="FRONTED/JS/conexion.js"></script>
+    <script src="FRONTED/JS/auth.js"></script>
+    <script src="FRONTED/JS/caja.js"></script>
+    <script src="FRONTED/JS/ventas.js"></script>
+    <script src="FRONTED/JS/dashboard.js"></script>
+    <script src="FRONTED/JS/cliente.js"></script>
+    <script src="FRONTED/JS/inventario.js"></script>
+    <script src="FRONTED/JS/citas.js"></script>
+    <script src="FRONTED/JS/usuarios.js"></script>
+    <script src="FRONTED/JS/gastos.js"></script>
+</body>
+</html>
