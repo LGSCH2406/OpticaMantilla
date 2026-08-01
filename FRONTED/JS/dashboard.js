@@ -29,27 +29,41 @@ function cargarModulo() {
                 </button>
             </div>
 
-            <!-- TARJETAS DE CAJA (NUEVAS) -->
+            <!-- TARJETAS DE CAJA (5 TARJETAS) -->
             <div class="row g-3 mb-4">
                 <div class="col-6 col-lg-3">
                     <div class="card border-0 shadow-sm p-3 h-100 bg-white border-start border-4 border-success">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
-                                <h6 class="text-muted text-uppercase small fw-bold mb-1">Efectivo en Caja</h6>
-                                <h3 class="fw-bold mb-0 text-success" id="montoEfectivoCaja">S/ 0.00</h3>
+                                <h6 class="text-muted text-uppercase small fw-bold mb-1">💰 Dinero en Caja</h6>
+                                <h3 class="fw-bold mb-0 text-success" id="montoTotalCaja">S/ 0.00</h3>
                             </div>
                             <div class="bg-success bg-opacity-10 p-3 rounded text-success">
-                                <i class="bi bi-cash-coin fs-4"></i>
+                                <i class="bi bi-cash-stack fs-4"></i>
                             </div>
                         </div>
                     </div>
                 </div>
                 
                 <div class="col-6 col-lg-3">
+                    <div class="card border-0 shadow-sm p-3 h-100 bg-white border-start border-4 border-primary">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="text-muted text-uppercase small fw-bold mb-1">💵 Ventas en Efectivo</h6>
+                                <h3 class="fw-bold mb-0 text-primary" id="montoEfectivoCaja">S/ 0.00</h3>
+                            </div>
+                            <div class="bg-primary bg-opacity-10 p-3 rounded text-primary">
+                                <i class="bi bi-cash-coin fs-4"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-6 col-lg-3">
                     <div class="card border-0 shadow-sm p-3 h-100 bg-white border-start border-4 border-info">
                         <div class="d-flex justify-content-between align-items-center">
                             <div>
-                                <h6 class="text-muted text-uppercase small fw-bold mb-1">Yape / Transferencia</h6>
+                                <h6 class="text-muted text-uppercase small fw-bold mb-1">📱 Yape</h6>
                                 <h3 class="fw-bold mb-0 text-info" id="montoYapeCaja">S/ 0.00</h3>
                             </div>
                             <div class="bg-info bg-opacity-10 p-3 rounded text-info">
@@ -59,8 +73,37 @@ function cargarModulo() {
                     </div>
                 </div>
 
+                <div class="col-6 col-lg-3">
+                    <div class="card border-0 shadow-sm p-3 h-100 bg-white border-start border-4 border-warning">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="text-muted text-uppercase small fw-bold mb-1">🏦 Transferencia</h6>
+                                <h3 class="fw-bold mb-0 text-warning" id="montoTransferenciaCaja">S/ 0.00</h3>
+                            </div>
+                            <div class="bg-warning bg-opacity-10 p-3 rounded text-warning">
+                                <i class="bi bi-bank fs-4"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- TARJETA DE TARJETA DE CRÉDITO/DÉBITO -->
+                <div class="col-6 col-lg-3">
+                    <div class="card border-0 shadow-sm p-3 h-100 bg-white border-start border-4 border-secondary">
+                        <div class="d-flex justify-content-between align-items-center">
+                            <div>
+                                <h6 class="text-muted text-uppercase small fw-bold mb-1">💳 Tarjeta</h6>
+                                <h3 class="fw-bold mb-0 text-secondary" id="montoTarjetaCaja">S/ 0.00</h3>
+                            </div>
+                            <div class="bg-secondary bg-opacity-10 p-3 rounded text-secondary">
+                                <i class="bi bi-credit-card fs-4"></i>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
                 <!-- BOTÓN CERRAR CAJA -->
-                <div class="col-12 col-lg-6 d-flex align-items-center justify-content-end">
+                <div class="col-12 mt-2 d-flex align-items-center justify-content-end">
                     <button class="btn btn-danger btn-lg fw-bold px-4 shadow-sm" onclick="cerrarCajaActual()" style="border-radius: 8px;">
                         <i class="bi bi-door-closed-fill me-2"></i>Cerrar Caja del Día
                     </button>
@@ -149,7 +192,7 @@ function cargarModulo() {
                 </div>
             </div>
 
-            <!-- GRÁFICA 3 Y PRODUCTOS MÁS VENDIDOS -->
+            <!-- GRÁFICA 3 Y ALERTAS -->
             <div class="row g-4">
                 <div class="col-12 col-lg-6">
                     <div class="card border-0 shadow-sm p-4 bg-white">
@@ -235,7 +278,7 @@ function inicializarDashboard() {
 }
 
 // ==========================================================================
-// LÓGICA DE CAJA (NUEVO - MONTO EN TIEMPO REAL)
+// LÓGICA DE CAJA (MONTO EN TIEMPO REAL)
 // ==========================================================================
 
 function actualizarVistaDashboardCaja() {
@@ -248,26 +291,49 @@ function actualizarVistaDashboardCaja() {
     }
 
     cajaListener = cajaRef.on('value', (snapshot) => {
+        const totalEl = document.getElementById('montoTotalCaja');
+        const efectivoEl = document.getElementById('montoEfectivoCaja');
+        const yapeEl = document.getElementById('montoYapeCaja');
+        const transferenciaEl = document.getElementById('montoTransferenciaCaja');
+        const tarjetaEl = document.getElementById('montoTarjetaCaja');
+        
+        // Valores por defecto
+        let totalEfectivo = 0;
+        let totalYape = 0;
+        let totalTransferencia = 0;
+        let totalTarjeta = 0;
+        let totalGeneral = 0;
+        
         if (snapshot.exists()) {
             const data = snapshot.val();
-            const efectivoEl = document.getElementById('montoEfectivoCaja');
-            const yapeEl = document.getElementById('montoYapeCaja');
+            totalEfectivo = data.totalEfectivo || 0;
+            totalYape = data.totalYape || 0;
+            totalTransferencia = data.totalTransferencia || 0;
+            totalTarjeta = data.totalTarjeta || 0;
+            totalGeneral = totalEfectivo + totalYape + totalTransferencia + totalTarjeta;
             
-            if (efectivoEl) efectivoEl.innerText = 'S/ ' + (data.totalEfectivo || 0).toFixed(2);
-            if (yapeEl) yapeEl.innerText = 'S/ ' + (data.totalYape || 0).toFixed(2);
+            console.log('📊 Caja actualizada - Efectivo: S/', totalEfectivo, 'Yape: S/', totalYape, 'Transferencia: S/', totalTransferencia, 'Tarjeta: S/', totalTarjeta);
+        } else {
+            console.log('📊 No hay caja abierta para hoy');
         }
+        
+        if (totalEl) totalEl.innerText = 'S/ ' + totalGeneral.toFixed(2);
+        if (efectivoEl) efectivoEl.innerText = 'S/ ' + totalEfectivo.toFixed(2);
+        if (yapeEl) yapeEl.innerText = 'S/ ' + totalYape.toFixed(2);
+        if (transferenciaEl) transferenciaEl.innerText = 'S/ ' + totalTransferencia.toFixed(2);
+        if (tarjetaEl) tarjetaEl.innerText = 'S/ ' + totalTarjeta.toFixed(2);
+    }, (error) => {
+        console.error('❌ Error al escuchar caja:', error);
     });
 }
 
 // ==========================================================================
-// LÓGICA PARA CERRAR CAJA Y SUMAR AL ACUMULADO (NUEVO)
+// LÓGICA PARA CERRAR CAJA CON MODAL DE BOOTSTRAP ESTÁTICO Y DATOS
 // ==========================================================================
 
 window.cerrarCajaActual = function() {
     const fechaHoy = new Date().toISOString().split('T')[0];
     const cajaRef = firebase.database().ref('cajas/' + fechaHoy);
-
-    if (!confirm("⚠️ ¿Estás seguro de cerrar la caja del día? Esto guardará el total en las finanzas generales y no podrás modificarlo.")) return;
 
     cajaRef.once('value').then((snapshot) => {
         const caja = snapshot.val();
@@ -276,41 +342,126 @@ window.cerrarCajaActual = function() {
             return;
         }
 
-        // Calcular total general de la caja
-        const totalFinal = (caja.totalEfectivo || 0) + (caja.totalYape || 0);
-        const montoInicial = caja.apertura.monto || 0;
+        const montoInicial = caja.apertura?.monto || caja.montoInicial || 0;
+        const totalEfectivo = caja.totalEfectivo || 0;
+        const totalYape = caja.totalYape || 0;
+        const totalTransferencia = caja.totalTransferencia || 0;
+        const totalTarjeta = caja.totalTarjeta || 0;
+        const totalFinal = totalEfectivo + totalYape + totalTransferencia + totalTarjeta;
         const gananciaDelDia = totalFinal - montoInicial;
 
-        // Actualizar estado a cerrada
-        cajaRef.update({
-            estado: 'cerrada',
-            cierre: {
-                montoFinal: totalFinal,
-                gananciaDelDia: gananciaDelDia,
-                fecha: new Date().toISOString(),
-                cerradoPor: JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}').nombre || 'Sistema'
-            }
-        }).then(() => {
-            // PASO EXTRA: Sumar a las finanzas generales (Acumulado histórico)
-            const finanzasRef = firebase.database().ref('finanzasGenerales');
-            finanzasRef.transaction((data) => {
-                if (data === null) {
-                    return { totalAcumulado: totalFinal };
-                }
-                data.totalAcumulado = (data.totalAcumulado || 0) + totalFinal;
-                return data;
-            });
+        // Inyectar los datos dentro del cuerpo del modal de Bootstrap
+        const cuerpoResumen = document.getElementById('cuerpoResumenCierre');
+        if (cuerpoResumen) {
+            cuerpoResumen.innerHTML = `
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Monto Inicial:</span>
+                    <span class="fw-bold">S/ ${montoInicial.toFixed(2)}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Total en Efectivo:</span>
+                    <span class="fw-bold text-success">S/ ${totalEfectivo.toFixed(2)}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Yape:</span>
+                    <span class="fw-bold text-info">S/ ${totalYape.toFixed(2)}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Transferencia:</span>
+                    <span class="fw-bold text-warning">S/ ${totalTransferencia.toFixed(2)}</span>
+                </div>
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="text-muted">Tarjeta:</span>
+                    <span class="fw-bold text-secondary">S/ ${totalTarjeta.toFixed(2)}</span>
+                </div>
+                <hr class="my-2">
+                <div class="d-flex justify-content-between mb-2">
+                    <span class="fw-bold text-dark">Total Final en Caja:</span>
+                    <span class="fw-bold text-dark">S/ ${totalFinal.toFixed(2)}</span>
+                </div>
+                <div class="d-flex justify-content-between">
+                    <span class="fw-bold text-primary">Ganancia del Día:</span>
+                    <span class="fw-bold text-primary">S/ ${gananciaDelDia.toFixed(2)}</span>
+                </div>
+            `;
+        }
 
-            // Remover listener de caja actual
-            if (cajaListener) {
-                cajaRef.off('value', cajaListener);
-            }
+        // Mostrar el modal de Bootstrap de forma estática
+        const modalEl = document.getElementById('modalConfirmarCierre');
+        if (modalEl) {
+            const modalCierre = new bootstrap.Modal(modalEl);
+            modalCierre.show();
 
-            alert(`✅ Caja cerrada exitosamente.\n💰 Total en caja: S/ ${totalFinal.toFixed(2)}\n📈 Ganancia del día: S/ ${gananciaDelDia.toFixed(2)}`);
-            location.reload(); // Recargar para empezar con caja vacía mañana
-        });
+            const btnAceptar = document.getElementById('btnAceptarCierreModal');
+            if (btnAceptar) {
+                btnAceptar.onclick = function() {
+                    modalCierre.hide();
+                    ejecutarCierreCajaLogica(cajaRef, caja, totalFinal, gananciaDelDia);
+                };
+            }
+        }
+    }).catch((error) => {
+        console.error('❌ Error al obtener datos de caja:', error);
+        alert('Error al obtener datos de caja: ' + error.message);
     });
 };
+
+// Función auxiliar que ejecuta el guardado en Firebase
+function ejecutarCierreCajaLogica(cajaRef, caja, totalFinal, gananciaDelDia) {
+    cajaRef.update({
+        estado: 'cerrada',
+        cierre: {
+            montoFinal: totalFinal,
+            gananciaDelDia: gananciaDelDia,
+            fecha: new Date().toISOString(),
+            cerradoPor: JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}').nombre || 'Sistema'
+        }
+    }).then(() => {
+        const finanzasRef = firebase.database().ref('finanzasGenerales');
+        finanzasRef.transaction((data) => {
+            if (data === null) {
+                return { totalAcumulado: totalFinal };
+            }
+            data.totalAcumulado = (data.totalAcumulado || 0) + totalFinal;
+            return data;
+        });
+
+        if (cajaListener) {
+            cajaRef.off('value', cajaListener);
+        }
+
+        // Mostrar modal de resultado exitoso con Bootstrap
+        const totalCajaEl = document.getElementById('totalCajaCierre');
+        const gananciaEl = document.getElementById('gananciaCierre');
+        
+        if (totalCajaEl) totalCajaEl.innerText = `S/ ${totalFinal.toFixed(2)}`;
+        if (gananciaEl) gananciaEl.innerText = `S/ ${gananciaDelDia.toFixed(2)}`;
+
+        const modalResultadoEl = document.getElementById('modalResultadoCierre');
+        if (modalResultadoEl) {
+            const modalResultado = new bootstrap.Modal(modalResultadoEl);
+            modalResultado.show();
+
+            const btnContinuar = document.getElementById('btnContinuarCierre');
+            if (btnContinuar) {
+                btnContinuar.onclick = function() {
+                    modalResultado.hide();
+                    // Ya NO se recarga la página (location.reload()) porque eso
+                    // hacía parecer que se cerraba la sesión. Solo refrescamos
+                    // el módulo del dashboard para reflejar que la caja está cerrada.
+                    if (typeof cargarModulo === 'function') {
+                        cargarModulo();
+                    }
+                };
+            }
+        } else if (typeof cargarModulo === 'function') {
+            cargarModulo();
+        }
+    }).catch((error) => {
+        console.error('❌ Error al cerrar caja:', error);
+        alert('Error al cerrar caja: ' + error.message);
+    });
+}
 
 // ==========================================================================
 // CÁLCULOS DE KPI (TARJETAS SUPERIORES) - CON VERIFICACIONES
@@ -318,7 +469,7 @@ window.cerrarCajaActual = function() {
 
 function calcularKPIVentas(ventas) {
     const elemento = document.getElementById('kpiVentasHoy');
-    if (!elemento) return; // ✅ VERIFICACIÓN: Si el elemento no existe, salir
+    if (!elemento) return;
 
     const hoy = new Date().toISOString().split('T')[0];
     let totalHoy = 0;
@@ -334,7 +485,7 @@ function calcularKPIVentas(ventas) {
 
 function calcularKPIStockCritico(inventario) {
     const elemento = document.getElementById('kpiStockCritico');
-    if (!elemento) return; // ✅ VERIFICACIÓN: Si el elemento no existe, salir
+    if (!elemento) return;
 
     let contador = 0;
     Object.values(inventario).forEach(prod => {
@@ -347,7 +498,7 @@ function calcularKPIStockCritico(inventario) {
 
 function calcularKPICitasHoy(citas) {
     const elemento = document.getElementById('kpiCitasHoy');
-    if (!elemento) return; // ✅ VERIFICACIÓN: Si el elemento no existe, salir
+    if (!elemento) return;
 
     const hoy = new Date().toISOString().split('T')[0];
     let contador = 0;
@@ -360,14 +511,13 @@ function calcularKPICitasHoy(citas) {
 }
 
 // ==========================================================================
-// GRÁFICA 1: VENTAS SEMANALES (BARRAS) - CON VERIFICACIONES
+// GRÁFICA 1: VENTAS SEMANALES (BARRAS)
 // ==========================================================================
 
 function renderizarGraficaVentasSemanales(ventas) {
     const canvas = document.getElementById('graficaVentasSemanales');
-    if (!canvas) return; // ✅ VERIFICACIÓN: Si el canvas no existe, salir
+    if (!canvas) return;
 
-    // Generar los últimos 7 días en formato YYYY-MM-DD
     const dias = [];
     const fechas = [];
     for (let i = 6; i >= 0; i--) {
@@ -378,7 +528,6 @@ function renderizarGraficaVentasSemanales(ventas) {
         dias.push(fecha.toLocaleDateString('es-ES', { weekday: 'short' }));
     }
 
-    // Calcular totales por día
     const totals = fechas.map(fecha => {
         let totalDia = 0;
         Object.values(ventas).forEach(venta => {
@@ -391,7 +540,6 @@ function renderizarGraficaVentasSemanales(ventas) {
 
     const ctx = canvas.getContext('2d');
 
-    // Destruir gráfica anterior si existe
     if (graficaVentasSemanales) {
         graficaVentasSemanales.destroy();
     }
@@ -426,12 +574,12 @@ function renderizarGraficaVentasSemanales(ventas) {
 }
 
 // ==========================================================================
-// GRÁFICA 2: ESTADO DE CITAS (DONUT) - CON VERIFICACIONES
+// GRÁFICA 2: ESTADO DE CITAS (DONUT)
 // ==========================================================================
 
 function renderizarGraficaEstadoCitas(citas) {
     const canvas = document.getElementById('graficaEstadoCitas');
-    if (!canvas) return; // ✅ VERIFICACIÓN: Si el canvas no existe, salir
+    if (!canvas) return;
 
     let pendientes = 0, confirmadas = 0, completadas = 0, canceladas = 0;
 
@@ -479,16 +627,15 @@ function renderizarGraficaEstadoCitas(citas) {
 }
 
 // ==========================================================================
-// GRÁFICA 3: TOP 5 PRODUCTOS MÁS VENDIDOS - CON VERIFICACIONES
+// GRÁFICA 3: TOP 5 PRODUCTOS MÁS VENDIDOS
 // ==========================================================================
 
 function renderizarGraficaTopProductos(ventas) {
     const canvas = document.getElementById('graficaTopProductos');
-    if (!canvas) return; // ✅ VERIFICACIÓN: Si el canvas no existe, salir
+    if (!canvas) return;
 
     const conteoProductos = {};
 
-    // Recorrer todas las ventas y sumar cantidades de productos
     Object.values(ventas).forEach(venta => {
         if (venta.items) {
             venta.items.forEach(item => {
@@ -499,7 +646,6 @@ function renderizarGraficaTopProductos(ventas) {
         }
     });
 
-    // Ordenar de mayor a menor y tomar los primeros 5
     const top5 = Object.entries(conteoProductos)
         .sort((a, b) => b[1] - a[1])
         .slice(0, 5);
@@ -513,7 +659,6 @@ function renderizarGraficaTopProductos(ventas) {
         graficaTopProductos.destroy();
     }
 
-    // Si no hay productos vendidos, mostrar mensaje
     if (labels.length === 0) {
         const parent = canvas.parentElement;
         if (parent) {
@@ -555,14 +700,13 @@ function renderizarGraficaTopProductos(ventas) {
 }
 
 // ==========================================================================
-// ALERTAS DE INVENTARIO (STOCK BAJO) - CON VERIFICACIONES
+// ALERTAS DE INVENTARIO (STOCK BAJO)
 // ==========================================================================
 
 function renderizarAlertasStock(inventario) {
     const contenedor = document.getElementById('listaAlertasStock');
-    if (!contenedor) return; // ✅ VERIFICACIÓN: Si el contenedor no existe, salir
+    if (!contenedor) return;
 
-    // Filtrar productos con stock menor o igual a 3
     const productosCriticos = Object.entries(inventario)
         .filter(([key, prod]) => (parseInt(prod.stock) || 0) <= 3)
         .sort((a, b) => a[1].stock - b[1].stock);

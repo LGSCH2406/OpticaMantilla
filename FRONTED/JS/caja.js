@@ -1,369 +1,361 @@
-// ==========================================================================
-// MÓDULO DE CAJA - ÓPTICA MANTILLA
-// Única fuente de verdad para Apertura, Sumatoria en tiempo real y Cierre.
-// dashboard.js y ventas.js SOLO llaman a estas funciones, no las redefinen.
-// ==========================================================================
+// ============================================
+// MODULO DE APERTURA Y CIERRE DE CAJA
+// ============================================
 
-let cajaModalAperturaMostrada = false;
-let cajaListenerActivo = null;
+let modalConfirmacion = null;
+let modalConfirmarCierre = null;
+let modalResultadoCierre = null;
+let modalError = null;
 
-// --------------------------------------------------------------------------
-// Referencias seguras a Firebase
-// --------------------------------------------------------------------------
-function obtenerReferenciaCajaFecha(fecha) {
-    try {
-        if (typeof db !== 'undefined' && db) return db.ref('cajas/' + fecha);
-        if (typeof firebase !== 'undefined' && firebase.apps.length > 0) return firebase.database().ref('cajas/' + fecha);
-    } catch (e) {
-        console.error("Error al obtener referencia de caja:", e);
+// ============================================
+// FUNCIÓN GLOBAL PARA ACTUALIZAR CAJA DESDE VENTAS
+// ============================================
+window.actualizarCajaConVenta = function(monto, metodo) {
+    const fechaHoy = new Date().toISOString().split('T')[0];
+    const cajaRef = firebase.database().ref('cajas/' + fechaHoy);
+    
+    let campoActualizar = 'totalEfectivo';
+    if (metodo === 'yape') {
+        campoActualizar = 'totalYape';
+    } else if (metodo === 'transferencia') {
+        campoActualizar = 'totalTransferencia';
+    } else if (metodo === 'tarjeta') {
+        campoActualizar = 'totalTarjeta';
     }
-    return null;
-}
-
-function obtenerReferenciaFinanzasGenerales() {
-    try {
-        if (typeof db !== 'undefined' && db) return db.ref('finanzasGenerales');
-        if (typeof firebase !== 'undefined' && firebase.apps.length > 0) return firebase.database().ref('finanzasGenerales');
-    } catch (e) {
-        console.error("Error al obtener referencia de finanzas generales:", e);
-    }
-    return null;
-}
-
-function fechaHoyISO() {
-    return new Date().toISOString().split('T')[0];
-}
-
-// --------------------------------------------------------------------------
-// PASO 1: En cuanto Firebase detecta una sesión activa (justo tras el login,
-// o al refrescar la página ya logueado), verificamos la caja ANTES que
-// cualquier otra cosa. Esto es independiente de auth.js: se dispara solo.
-// --------------------------------------------------------------------------
-if (typeof firebase !== 'undefined' && firebase.apps) {
-    firebase.auth().onAuthStateChanged((usuario) => {
-        if (usuario) {
-            verificarAperturaCajaDelDia();
-        } else {
-            cajaModalAperturaMostrada = false;
+    
+    console.log('💰 Actualizando caja - Método:', metodo, 'Monto:', monto, 'Campo:', campoActualizar);
+    
+    cajaRef.transaction((data) => {
+        if (data === null) {
+            return { 
+                totalEfectivo: 0, 
+                totalYape: 0,
+                totalTransferencia: 0,
+                totalTarjeta: 0,
+                estado: 'abierta',
+                apertura: { 
+                    monto: 0,
+                    fecha: new Date().toISOString()
+                }
+            };
         }
+        if (data.totalEfectivo === undefined) data.totalEfectivo = 0;
+        if (data.totalYape === undefined) data.totalYape = 0;
+        if (data.totalTransferencia === undefined) data.totalTransferencia = 0;
+        if (data.totalTarjeta === undefined) data.totalTarjeta = 0;
+        
+        data[campoActualizar] = (data[campoActualizar] || 0) + monto;
+        return data;
+    }).then((result) => {
+        console.log('✅ Caja actualizada correctamente. Nuevos datos:', result.snapshot.val());
+    }).catch((error) => {
+        console.error('❌ Error al actualizar caja:', error);
     });
-}
-
-// Fallback manual: si tu auth.js NO usa firebase.auth().signInWithEmailAndPassword
-// (por ejemplo, valida contraseñas a mano contra el nodo "usuarios"), puedes
-// llamar a esta función global justo después de mostrar el appContainer:
-//   iniciarControlDeCaja();
-window.iniciarControlDeCaja = function () {
-    verificarAperturaCajaDelDia();
 };
 
-function verificarAperturaCajaDelDia() {
-    const cajaRef = obtenerReferenciaCajaFecha(fechaHoyISO());
-    if (!cajaRef) return;
-
-    cajaRef.once('value').then((snapshot) => {
-        const data = snapshot.val();
-        if (data && data.estado === 'abierta') {
-            // Ya hay caja abierta hoy: solo sincronizamos los montos, sin pedir nada.
-            actualizarVistaDashboardCaja();
-        } else if (!cajaModalAperturaMostrada) {
-            // No hay caja abierta: bloqueamos con el modal de apertura.
-            mostrarModalAperturaCaja();
-        }
-    }).catch((error) => {
-        console.error("Error al verificar la caja del día:", error);
-    });
-}
-
-// --------------------------------------------------------------------------
-// PASO 2: Modal de Apertura (el HTML vive en el index.html: #modalAperturaCaja)
-// --------------------------------------------------------------------------
-function mostrarModalAperturaCaja() {
-    const modalEl = document.getElementById('modalAperturaCaja');
-    if (!modalEl) return;
-
-    cajaModalAperturaMostrada = true;
-
-    const inputMonto = document.getElementById('montoAperturaCaja');
-    if (inputMonto) inputMonto.value = "0.00";
-
-    const modal = bootstrap.Modal.getOrCreateInstance(modalEl, {
-        backdrop: 'static',
-        keyboard: false
-    });
-    modal.show();
-}
-
-// Enlazamos el botón "Abrir Caja" en cuanto el DOM esté listo
-document.addEventListener('DOMContentLoaded', () => {
-    const btnApertura = document.getElementById('btnConfirmarApertura');
-    if (btnApertura) {
-        btnApertura.addEventListener('click', confirmarAperturaCaja);
+document.addEventListener('DOMContentLoaded', function() {
+    console.log('📦 Módulo de caja inicializado');
+    inicializarModales();
+    
+    const btnAbrirCaja = document.getElementById('btnConfirmarApertura');
+    if (btnAbrirCaja) {
+        btnAbrirCaja.addEventListener('click', function(e) {
+            e.preventDefault();
+            
+            const montoInput = document.getElementById('montoAperturaCaja');
+            const monto = parseFloat(montoInput.value);
+            
+            if (!monto || monto <= 0) {
+                mostrarErrorModal('⚠️ Por favor, ingrese un monto válido mayor a 0');
+                return;
+            }
+            
+            if (monto > 100000) {
+                mostrarErrorModal('⚠️ El monto ingresado es muy alto. Por favor, verifique.');
+                return;
+            }
+            
+            const textoOriginal = btnAbrirCaja.innerHTML;
+            btnAbrirCaja.disabled = true;
+            btnAbrirCaja.innerHTML = `
+                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                Abriendo caja...
+            `;
+            
+            const user = firebase.auth().currentUser;
+            if (!user) {
+                mostrarErrorModal('❌ No hay usuario autenticado. Por favor, inicie sesión nuevamente.');
+                btnAbrirCaja.disabled = false;
+                btnAbrirCaja.innerHTML = textoOriginal;
+                return;
+            }
+            
+            const cajaRef = firebase.database().ref('cajas');
+            const nuevaCaja = cajaRef.push();
+            
+            const datosCaja = {
+                id: nuevaCaja.key,
+                userId: user.uid,
+                usuario: user.email || 'Usuario',
+                montoInicial: monto,
+                montoActual: monto,
+                fechaApertura: firebase.database.ServerValue.TIMESTAMP,
+                fechaAperturaString: new Date().toISOString(),
+                estado: 'abierta',
+                totalVentas: 0,
+                numeroVentas: 0,
+                totalEfectivo: 0,
+                totalYape: 0,
+                totalTransferencia: 0,
+                totalTarjeta: 0,
+                historial: []
+            };
+            
+            nuevaCaja.set(datosCaja)
+                .then(() => {
+                    console.log('✅ Caja aperturada exitosamente');
+                    localStorage.setItem('cajaActual', JSON.stringify(datosCaja));
+                    localStorage.setItem('cajaId', nuevaCaja.key);
+                    
+                    mostrarConfirmacionApertura(monto);
+                    btnAbrirCaja.disabled = false;
+                    btnAbrirCaja.innerHTML = textoOriginal;
+                })
+                .catch((error) => {
+                    console.error('❌ Error:', error);
+                    mostrarErrorModal('❌ Error al abrir la caja: ' + error.message);
+                    btnAbrirCaja.disabled = false;
+                    btnAbrirCaja.innerHTML = textoOriginal;
+                });
+        });
     }
+    
+    document.getElementById('btnCerrarConfirmacion')?.addEventListener('click', function() {
+        if (modalConfirmacion) modalConfirmacion.hide();
+        mostrarDashboard();
+    });
+    
+    // NOTA: El manejo del clic en btnSalir (y la validación de caja abierta)
+    // se centraliza en auth.js mediante el modal "modalConfirmarCerrarSesion".
+    // Se eliminó el listener duplicado que mostraba el modal
+    // "modalConfirmarCierre" (¿Estás seguro de cerrar caja?) para evitar
+    // que aparecieran dos avisos al intentar cerrar sesión.
 });
 
-function confirmarAperturaCaja() {
-    const inputMonto = document.getElementById('montoAperturaCaja');
-    const btn = document.getElementById('btnConfirmarApertura');
-    let monto = parseFloat(inputMonto ? inputMonto.value : 0);
-
-    if (isNaN(monto) || monto < 0) {
-        mostrarAlertaCajaGlobal("Ingresa un monto válido (puede ser 0).", "warning");
-        return;
+function inicializarModales() {
+    const confirmacionElement = document.getElementById('modalConfirmacionApertura');
+    if (confirmacionElement) {
+        modalConfirmacion = new bootstrap.Modal(confirmacionElement, { backdrop: 'static', keyboard: false });
     }
-
-    const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
-    const fechaHoy = fechaHoyISO();
-    const cajaRef = obtenerReferenciaCajaFecha(fechaHoy);
-    if (!cajaRef) {
-        mostrarAlertaCajaGlobal("No hay conexión con Firebase.", "danger");
-        return;
+    
+    const confirmarCierreElement = document.getElementById('modalConfirmarCierre');
+    if (confirmarCierreElement) {
+        modalConfirmarCierre = new bootstrap.Modal(confirmarCierreElement, { backdrop: 'static', keyboard: false });
     }
-
-    if (btn) btn.disabled = true;
-
-    cajaRef.set({
-        estado: 'abierta',
-        apertura: {
-            monto: monto,
-            usuario: usuarioLog.nombre || 'Sistema',
-            fecha: new Date().toISOString()
-        },
-        totalEfectivo: monto,
-        totalYape: 0
-    }).then(() => {
-        const modalInstance = bootstrap.Modal.getInstance(document.getElementById('modalAperturaCaja'));
-        if (modalInstance) modalInstance.hide();
-
-        actualizarVistaDashboardCaja();
-        mostrarAlertaCajaGlobal(`Caja aperturada con S/ ${monto.toFixed(2)}.`, "success");
-    }).catch((error) => {
-        console.error("Error al abrir caja:", error);
-        mostrarAlertaCajaGlobal("No se pudo abrir la caja. Intenta nuevamente.", "danger");
-    }).finally(() => {
-        if (btn) btn.disabled = false;
-    });
+    
+    const resultadoCierreElement = document.getElementById('modalResultadoCierre');
+    if (resultadoCierreElement) {
+        modalResultadoCierre = new bootstrap.Modal(resultadoCierreElement, { backdrop: 'static', keyboard: false });
+    }
+    
+    const errorElement = document.getElementById('modalError');
+    if (errorElement) {
+        modalError = new bootstrap.Modal(errorElement, { backdrop: 'static', keyboard: false });
+    }
+    
+    console.log('✅ Todos los modales inicializados');
 }
 
-// --------------------------------------------------------------------------
-// PASO 3: Cada venta cobrada suma automáticamente a la caja del día
-// (llamado desde ventas.js → procesarCobroVenta)
-// --------------------------------------------------------------------------
-function actualizarCajaConVenta(montoVenta, tipoPago) {
-    const fechaHoy = fechaHoyISO();
-    const cajaRef = obtenerReferenciaCajaFecha(fechaHoy);
-    if (!cajaRef) return;
-
-    cajaRef.transaction((cajaActual) => {
-        if (cajaActual === null) return cajaActual;             // no hay caja abierta: no sumamos
-        if (cajaActual.estado === 'cerrada') return cajaActual; // ya cerrada: no sumamos
-
-        if (tipoPago === 'yape') {
-            cajaActual.totalYape = (cajaActual.totalYape || 0) + montoVenta;
-        } else {
-            // efectivo, tarjeta y transferencia se cuentan como ingreso de caja física
-            cajaActual.totalEfectivo = (cajaActual.totalEfectivo || 0) + montoVenta;
-        }
-        return cajaActual;
-    }, (error, committed) => {
-        if (error) {
-            console.error("Error al actualizar la caja con la venta:", error);
-        } else if (committed) {
-            actualizarVistaDashboardCaja();
-        }
-    });
+function mostrarConfirmacionApertura(monto) {
+    const montoElement = document.getElementById('montoConfirmacion');
+    if (montoElement) {
+        montoElement.textContent = `S/ ${monto.toFixed(2)}`;
+    }
+    
+    const fechaElement = document.getElementById('fechaConfirmacion');
+    if (fechaElement) {
+        const ahora = new Date();
+        fechaElement.textContent = ahora.toLocaleDateString('es-PE', {
+            day: '2-digit', month: '2-digit', year: 'numeric',
+            hour: '2-digit', minute: '2-digit'
+        });
+    }
+    
+    if (modalConfirmacion) {
+        modalConfirmacion.show();
+    }
+    
+    const modalAperturaEl = document.getElementById('modalAperturaCaja');
+    if (modalAperturaEl) {
+        const modalApertura = bootstrap.Modal.getInstance(modalAperturaEl);
+        if (modalApertura) modalApertura.hide();
+    }
 }
 
-// --------------------------------------------------------------------------
-// PASO 4: Reflejar los montos actuales en las tarjetas del Dashboard
-// --------------------------------------------------------------------------
-function actualizarVistaDashboardCaja() {
-    const fechaHoy = fechaHoyISO();
-    const cajaRef = obtenerReferenciaCajaFecha(fechaHoy);
-    if (!cajaRef) return;
-
-    if (cajaListenerActivo) {
-        cajaRef.off('value', cajaListenerActivo);
+function mostrarErrorModal(mensaje) {
+    const mensajeElement = document.getElementById('mensajeError');
+    if (mensajeElement) {
+        mensajeElement.textContent = mensaje;
     }
-
-    cajaListenerActivo = cajaRef.on('value', (snapshot) => {
-        const data = snapshot.val();
-        const efectivoEl = document.getElementById('montoEfectivoCaja');
-        const yapeEl = document.getElementById('montoYapeCaja');
-        if (efectivoEl) efectivoEl.innerText = 'S/ ' + ((data && data.totalEfectivo) || 0).toFixed(2);
-        if (yapeEl) yapeEl.innerText = 'S/ ' + ((data && data.totalYape) || 0).toFixed(2);
-    });
+    if (modalError) {
+        modalError.show();
+    }
 }
 
-// --------------------------------------------------------------------------
-// PASO 5: Cerrar Caja — con confirmación en Bootstrap (nada de alert/confirm nativos)
-// --------------------------------------------------------------------------
-window.cerrarCajaActual = function () {
-    const fechaHoy = fechaHoyISO();
-    const cajaRef = obtenerReferenciaCajaFecha(fechaHoy);
-    if (!cajaRef) {
-        mostrarAlertaCajaGlobal("No hay conexión con Firebase.", "danger");
-        return;
-    }
-
-    cajaRef.once('value').then((snapshot) => {
-        const caja = snapshot.val();
-        if (!caja || caja.estado === 'cerrada') {
-            mostrarAlertaCajaGlobal("No hay una caja abierta para cerrar hoy.", "warning");
-            return;
-        }
-
-        const montoInicial = (caja.apertura && caja.apertura.monto) || 0;
-        const totalEfectivo = caja.totalEfectivo || 0;
-        const totalYape = caja.totalYape || 0;
-        const totalFinal = totalEfectivo + totalYape;
-        const gananciaDelDia = totalFinal - montoInicial;
-
-        mostrarModalConfirmarCierreCaja(
-            { montoInicial, totalEfectivo, totalYape, totalFinal, gananciaDelDia },
-            () => ejecutarCierreCaja(cajaRef, totalFinal, gananciaDelDia)
-        );
-    });
-};
-
-function ejecutarCierreCaja(cajaRef, totalFinal, gananciaDelDia) {
-    const usuarioLog = JSON.parse(sessionStorage.getItem('usuarioLogueado') || '{}');
-
-    cajaRef.update({
-        estado: 'cerrada',
-        cierre: {
-            montoFinal: totalFinal,
-            gananciaDelDia: gananciaDelDia,
-            fecha: new Date().toISOString(),
-            cerradoPor: usuarioLog.nombre || 'Sistema'
-        }
-    }).then(() => {
-        const refFinanzas = obtenerReferenciaFinanzasGenerales();
-        if (refFinanzas) {
-            refFinanzas.transaction((data) => {
-                if (data === null) return { totalAcumulado: totalFinal };
-                data.totalAcumulado = (data.totalAcumulado || 0) + totalFinal;
-                return data;
+function ejecutarCierreCaja() {
+    const cajaId = localStorage.getItem('cajaId');
+    const fechaHoy = new Date().toISOString().split('T')[0];
+    const cajaRef = cajaId ? firebase.database().ref('cajas/' + cajaId) : firebase.database().ref('cajas/' + fechaHoy);
+    
+    cajaRef.once('value')
+        .then((snapshot) => {
+            const data = snapshot.val();
+            if (!data) {
+                throw new Error('No se encontraron datos de la caja abierta');
+            }
+            
+            const montoInicial = data.montoInicial || (data.apertura ? data.apertura.monto : 0);
+            const totalEfectivo = data.totalEfectivo || 0;
+            const totalYape = data.totalYape || 0;
+            const totalTransferencia = data.totalTransferencia || 0;
+            const totalTarjeta = data.totalTarjeta || 0;
+            const montoActual = totalEfectivo + totalYape + totalTransferencia + totalTarjeta;
+            const ganancia = montoActual - montoInicial;
+            
+            return cajaRef.update({
+                estado: 'cerrada',
+                fechaCierre: firebase.database.ServerValue.TIMESTAMP,
+                fechaCierreString: new Date().toISOString(),
+                gananciaTotal: ganancia,
+                montoFinal: montoActual,
+                totalEfectivoFinal: totalEfectivo,
+                totalYapeFinal: totalYape,
+                totalTransferenciaFinal: totalTransferencia,
+                totalTarjetaFinal: totalTarjeta
+            }).then(() => {
+                return { montoActual, ganancia, ventas: data.numeroVentas || 0, totalEfectivo, totalYape, totalTransferencia, totalTarjeta };
             });
-        }
-
-        if (cajaListenerActivo) {
-            cajaRef.off('value', cajaListenerActivo);
-            cajaListenerActivo = null;
-        }
-
-        mostrarAlertaCajaGlobal(
-            `Caja cerrada. Total: S/ ${totalFinal.toFixed(2)} · Ganancia del día: S/ ${gananciaDelDia.toFixed(2)}. Recargando...`,
-            "success"
-        );
-        setTimeout(() => location.reload(), 1800);
-    }).catch((error) => {
-        console.error("Error al cerrar caja:", error);
-        mostrarAlertaCajaGlobal("No se pudo cerrar la caja. Intenta nuevamente.", "danger");
-    });
+        })
+        .then((resultado) => {
+            mostrarResultadoCierre(resultado.montoActual, resultado.ganancia, resultado.totalEfectivo, resultado.totalYape, resultado.totalTransferencia, resultado.totalTarjeta);
+            
+            localStorage.removeItem('cajaActual');
+            localStorage.removeItem('cajaId');
+        })
+        .catch((error) => {
+            console.error('❌ Error al cerrar caja:', error);
+            mostrarErrorModal('❌ Error al cerrar la caja: ' + error.message);
+        });
 }
 
-// --------------------------------------------------------------------------
-// Modal de confirmación de cierre (Bootstrap, generado dinámicamente)
-// --------------------------------------------------------------------------
-function mostrarModalConfirmarCierreCaja(datos, callbackConfirmar) {
-    const existente = document.getElementById('modalConfirmarCierreCaja');
-    if (existente) existente.remove();
+function mostrarResultadoCierre(total, ganancia, totalEfectivo, totalYape, totalTransferencia, totalTarjeta) {
+    const totalElement = document.getElementById('totalCajaCierre');
+    const gananciaElement = document.getElementById('gananciaCierre');
+    const efectivoElement = document.getElementById('totalEfectivoCierre');
+    const yapeElement = document.getElementById('totalYapeCierre');
+    const transferenciaElement = document.getElementById('totalTransferenciaCierre');
+    const tarjetaElement = document.getElementById('totalTarjetaCierre');
+    
+    if (totalElement) {
+        totalElement.textContent = `S/ ${total.toFixed(2)}`;
+    }
+    
+    if (gananciaElement) {
+        gananciaElement.textContent = `S/ ${ganancia.toFixed(2)}`;
+        if (ganancia < 0) {
+            gananciaElement.classList.remove('text-success', 'text-dark');
+            gananciaElement.classList.add('text-danger');
+        }
+    }
+    
+    if (efectivoElement) {
+        efectivoElement.textContent = `S/ ${(totalEfectivo || 0).toFixed(2)}`;
+    }
+    
+    if (yapeElement) {
+        yapeElement.textContent = `S/ ${(totalYape || 0).toFixed(2)}`;
+    }
+    
+    if (transferenciaElement) {
+        transferenciaElement.textContent = `S/ ${(totalTransferencia || 0).toFixed(2)}`;
+    }
+    
+    if (tarjetaElement) {
+        tarjetaElement.textContent = `S/ ${(totalTarjeta || 0).toFixed(2)}`;
+    }
+    
+    if (modalResultadoCierre) {
+        modalResultadoCierre.show();
+        
+        document.getElementById('btnContinuarCierre').onclick = function() {
+            modalResultadoCierre.hide();
+            // Ya NO se cierra la sesión automáticamente al cerrar caja.
+            // El cierre de sesión solo debe ocurrir cuando el usuario
+            // haga clic explícitamente en "Cerrar Sesión" (btnSalir),
+            // el cual ya valida que la caja esté cerrada.
+            mostrarDashboard();
+        };
+    }
+}
 
-    const modalHTML = `
-        <div class="modal fade" id="modalConfirmarCierreCaja" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
-            <div class="modal-dialog modal-dialog-centered">
-                <div class="modal-content border-0 shadow" style="border-radius: 12px;">
-                    <div class="modal-header border-0 bg-danger text-white py-3" style="border-radius: 12px 12px 0 0;">
-                        <h5 class="modal-title fw-bold mb-0">
-                            <i class="bi bi-door-closed-fill me-2"></i>Confirmar Cierre de Caja
-                        </h5>
-                        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body p-4">
-                        <p class="text-muted small mb-3">Esta acción cerrará la caja del día y no podrá deshacerse.</p>
-                        <table class="table table-sm mb-0">
-                            <tbody>
-                                <tr>
-                                    <td class="text-muted">Monto de apertura</td>
-                                    <td class="text-end fw-semibold">S/ ${datos.montoInicial.toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td class="text-muted">Total en efectivo</td>
-                                    <td class="text-end fw-semibold">S/ ${datos.totalEfectivo.toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td class="text-muted">Total Yape / Transferencias</td>
-                                    <td class="text-end fw-semibold">S/ ${datos.totalYape.toFixed(2)}</td>
-                                </tr>
-                                <tr class="border-top">
-                                    <td class="fw-bold text-dark pt-2">Total General</td>
-                                    <td class="text-end fw-bold text-dark pt-2 fs-5">S/ ${datos.totalFinal.toFixed(2)}</td>
-                                </tr>
-                                <tr>
-                                    <td class="fw-semibold ${datos.gananciaDelDia >= 0 ? 'text-success' : 'text-danger'}">Ganancia del día</td>
-                                    <td class="text-end fw-semibold ${datos.gananciaDelDia >= 0 ? 'text-success' : 'text-danger'}">S/ ${datos.gananciaDelDia.toFixed(2)}</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                    <div class="modal-footer border-0 bg-light py-3" style="border-radius: 0 0 12px 12px;">
-                        <button type="button" class="btn btn-light px-4 fw-semibold" data-bs-dismiss="modal" style="border-radius: 8px;">Cancelar</button>
-                        <button type="button" class="btn btn-danger px-4 fw-semibold" id="btnConfirmarCierreCajaDefinitivo" style="border-radius: 8px;">
-                            <i class="bi bi-check-lg me-1"></i>Sí, Cerrar Caja
-                        </button>
+function mostrarDashboard() {
+    const vistaLogin = document.getElementById('vistaLogin');
+    const appContainer = document.getElementById('appContainer');
+    
+    if (vistaLogin && appContainer) {
+        vistaLogin.classList.add('d-none');
+        appContainer.classList.remove('d-none');
+    }
+    
+    if (typeof cargarModulo === 'function') {
+        cargarModulo();
+    } else {
+        cargarDashboardFallback();
+    }
+}
+
+function cerrarSesion() {
+    firebase.auth().signOut()
+        .then(() => {
+            localStorage.removeItem('cajaActual');
+            localStorage.removeItem('cajaId');
+            window.location.reload();
+        })
+        .catch((error) => {
+            mostrarErrorModal('❌ Error al cerrar sesión: ' + error.message);
+        });
+}
+
+function hayCajaAbierta() {
+    const cajaData = localStorage.getItem('cajaActual');
+    if (!cajaData) return false;
+    
+    try {
+        const caja = JSON.parse(cajaData);
+        return caja.estado === 'abierta';
+    } catch (e) {
+        return false;
+    }
+}
+
+function cargarDashboardFallback() {
+    const contenido = document.getElementById('contenidoDinamico');
+    if (contenido) {
+        contenido.innerHTML = `
+            <div class="row">
+                <div class="col-12">
+                    <div class="card shadow-sm">
+                        <div class="card-body">
+                            <h5 class="card-title">
+                                <i class="bi bi-speedometer2 me-2"></i>Dashboard
+                            </h5>
+                            <p class="text-muted">Bienvenido al sistema. Seleccione un módulo del menú.</p>
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
-    `;
-
-    document.body.insertAdjacentHTML('beforeend', modalHTML);
-
-    const modalEl = document.getElementById('modalConfirmarCierreCaja');
-    const modalInstance = new bootstrap.Modal(modalEl);
-    modalInstance.show();
-
-    document.getElementById('btnConfirmarCierreCajaDefinitivo').addEventListener('click', () => {
-        modalInstance.hide();
-        if (typeof callbackConfirmar === 'function') callbackConfirmar();
-    });
-
-    modalEl.addEventListener('hidden.bs.modal', () => {
-        modalEl.remove();
-    });
-}
-
-// --------------------------------------------------------------------------
-// Alertas flotantes propias del módulo de caja (funcionan en cualquier vista)
-// --------------------------------------------------------------------------
-function mostrarAlertaCajaGlobal(mensaje, tipo = "success") {
-    let contenedor = document.getElementById('contenedorAlertasCaja');
-    if (!contenedor) {
-        contenedor = document.createElement('div');
-        contenedor.id = 'contenedorAlertasCaja';
-        contenedor.className = 'position-fixed top-0 end-0 p-3';
-        contenedor.style.zIndex = '1080';
-        contenedor.style.maxWidth = '350px';
-        document.body.appendChild(contenedor);
+        `;
     }
-
-    const idAlerta = 'alert-caja-' + Date.now();
-    const icono = tipo === "success" ? "bi-check-circle-fill" : (tipo === "danger" ? "bi-x-circle-fill" : "bi-exclamation-triangle-fill");
-
-    contenedor.insertAdjacentHTML('beforeend', `
-        <div id="${idAlerta}" class="alert alert-${tipo} d-flex align-items-center alert-dismissible fade show shadow animate__animated animate__fadeInRight" role="alert" style="border-radius: 8px;">
-            <i class="bi ${icono} me-2 fs-5"></i>
-            <div>${mensaje}</div>
-            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
-        </div>
-    `);
-
-    setTimeout(() => {
-        const el = document.getElementById(idAlerta);
-        if (el) {
-            el.classList.replace('animate__fadeInRight', 'animate__fadeOutRight');
-            setTimeout(() => el.remove(), 500);
-        }
-    }, 4500);
 }
+
+console.log('✅ Módulo caja.js cargado correctamente');

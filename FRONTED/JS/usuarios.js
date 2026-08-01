@@ -1,13 +1,41 @@
 // ==========================================================================
-// GESTIÓN DE USUARIOS - ÓPTICA MANTILLA (Firebase Auth + Realtime Database)
+// GESTIÓN DE USUARIOS - ÓPTICA MANTILLA (Firebase Auth + Realtime DB)
 // ==========================================================================
 
-let usuariosAlmacen = {};
+// ==========================================================================
+// VALIDACIÓN DE SEGURIDAD AL CARGAR LA PÁGINA DE USUARIOS
+// ==========================================================================
+(function validarAccesoUsuarios() {
+    const usuarioLogueado = JSON.parse(sessionStorage.getItem('usuarioLogueado'));
+    
+    // Si no está logueado o su rol no es admin ni administrador
+    if (!usuarioLogueado || (usuarioLogueado.rol !== 'admin' && usuarioLogueado.rol !== 'administrador')) {
+        // Forzamos la carga del Dashboard en lugar de abrir el módulo de usuarios
+        if (typeof cargarModulo === 'function') {
+            cargarModulo();
+        } else {
+            // Fallback si cargarModulo no está disponible
+            window.location.href = '#';
+        }
+        // Mostramos un mensaje de alerta
+        setTimeout(() => {
+            mostrarAlertaUsuarios("Acceso denegado. No tienes permisos para ver esta sección.", "danger");
+        }, 100);
+        return;
+    }
+})();
+
+// (El resto de tu código original de usuarios.js continúa aquí abajo...)
+let usuariosAlmacen = {}; // Estructura: { uid: { email, nombre, codigo, rol, activo } }
 let rolesAlmacen = ['admin', 'ventas', 'optometra'];
 let accionSeguridadPendienteUsuarios = null;
 const CLAVE_SEGURIDAD_USUARIOS = "24060102";
 
 const USUARIO_ADMIN_PRINCIPAL = "gus24060102@gmail.com";
+
+// ==========================================================================
+// FUNCIONES DE REFERENCIA
+// ==========================================================================
 
 function obtenerReferenciaUsuarios() {
     try {
@@ -34,6 +62,10 @@ function obtenerAuth() {
     return null;
 }
 
+// ==========================================================================
+// ROLES (persistencia local)
+// ==========================================================================
+
 function persistirRoles() {
     localStorage.setItem('optica_roles_usuarios', JSON.stringify(rolesAlmacen));
 }
@@ -50,7 +82,7 @@ function cargarRoles() {
 }
 
 // ==========================================================================
-// MODAL DE CONFIRMACIÓN CON CLAVE DE SEGURIDAD
+// MODAL DE CONFIRMACIÓN CON CLAVE DE SEGURIDAD (PARA ACCIONES CRÍTICAS)
 // ==========================================================================
 
 function mostrarModalConfirmacionSeguridad(titulo, mensaje, callbackAceptar) {
@@ -67,7 +99,7 @@ function mostrarModalConfirmacionSeguridad(titulo, mensaje, callbackAceptar) {
                     </div>
                     <div class="modal-body p-4">
                         <p class="mb-3 text-dark">${mensaje}</p>
-                        <div class="mb-2">a
+                        <div class="mb-2">
                             <label class="form-label fw-semibold text-muted small">Ingrese la clave de seguridad:</label>
                             <input type="password" id="inputClaveSeguridadConfirmacion" class="form-control text-center bg-light fw-bold" placeholder="••••••••" maxlength="8" style="border-radius: 8px; letter-spacing: 0.2em;">
                             <div id="errorClaveSeguridad" class="text-danger small mt-1 d-none">Clave incorrecta. Intente nuevamente.</div>
@@ -100,7 +132,14 @@ function mostrarModalConfirmacionSeguridad(titulo, mensaje, callbackAceptar) {
     });
     modalInstance.show();
 
-    document.getElementById('btnConfirmarSeguridad').addEventListener('click', function() {
+    // Configurar evento de confirmación
+    const btnConfirmar = document.getElementById('btnConfirmarSeguridad');
+    
+    // Limpiar eventos previos clonando el botón
+    btnConfirmar.replaceWith(btnConfirmar.cloneNode(true));
+    const nuevoBtn = document.getElementById('btnConfirmarSeguridad');
+
+    nuevoBtn.addEventListener('click', function() {
         const claveIngresada = document.getElementById('inputClaveSeguridadConfirmacion').value;
         const errorDiv = document.getElementById('errorClaveSeguridad');
         
@@ -122,7 +161,7 @@ function mostrarModalConfirmacionSeguridad(titulo, mensaje, callbackAceptar) {
 
     document.getElementById('inputClaveSeguridadConfirmacion').addEventListener('keypress', function(e) {
         if (e.key === 'Enter') {
-            document.getElementById('btnConfirmarSeguridad').click();
+            nuevoBtn.click();
         }
     });
 
@@ -312,36 +351,146 @@ function cargarModuloUsuarios() {
                 </div>
             </div>
         </div>
-
-        <!-- MODAL SEGURIDAD (para editar/eliminar usuarios) -->
-        <div class="modal fade" id="modalSeguridadUsuarios" tabindex="-1" aria-hidden="true" data-bs-backdrop="static">
-            <div class="modal-dialog modal-sm modal-dialog-centered">
-                <div class="modal-content border-0 shadow" style="border-radius: 12px;">
-                    <div class="modal-header border-0 bg-light py-2" style="border-radius: 12px 12px 0 0;">
-                        <h6 class="modal-title fw-bold text-dark mb-0">
-                            <i class="bi bi-shield-lock-fill text-danger me-2"></i>Confirmación Requerida
-                        </h6>
-                        <button type="button" class="btn-close" onclick="cerrarModalSeguridadUsuarios()" aria-label="Close"></button>
-                    </div>
-                    <div class="modal-body p-3 text-center">
-                        <p class="small text-muted mb-3">Introduce la clave de autorización para continuar.</p>
-                        <form id="formConfirmarSeguridadUsuarios">
-                            <div class="mb-3">
-                                <input type="password" id="passSeguridadUsuarios" class="form-control text-center bg-light fw-bold" placeholder="••••••••" required style="border-radius: 8px; letter-spacing: 0.2em;">
-                            </div>
-                            <button type="submit" class="btn btn-danger btn-sm w-100 fw-semibold py-2" style="border-radius: 8px;">
-                                Validar y Continuar
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
-        </div>
     `;
 
+    // Inicializar lógica y cargar datos
     inicializarLogicaUsuarios();
-    escucharUsuariosEnTiempoReal();
+    cargarUsuariosDesdeAuthYRoles();
     renderizarListaRolesUI();
+}
+
+// ==========================================================================
+// NUEVA FUNCIÓN: Cargar usuarios desde Firebase Auth + Roles desde Realtime DB
+// ==========================================================================
+
+function cargarUsuariosDesdeAuthYRoles() {
+    const auth = obtenerAuth();
+    const refUsuarios = obtenerReferenciaUsuarios();
+    
+    if (!auth) {
+        mostrarAlertaUsuarios("No se pudo conectar con Firebase Authentication.", "danger");
+        return;
+    }
+
+    if (refUsuarios) {
+        refUsuarios.on('value', (snapshot) => {
+            const datos = snapshot.val() || {};
+            usuariosAlmacen = datos;
+            actualizarTablaUsuarios();
+        }, (error) => {
+            console.error("Error leyendo usuarios:", error);
+            mostrarAlertaUsuarios("Error al leer los datos de usuarios.", "danger");
+        });
+    } else {
+        // Fallback: intentar leer usuarios desde Auth (limitado en cliente)
+        const usuarioActual = auth.currentUser;
+        if (usuarioActual) {
+            const refUsuario = refUsuarios ? refUsuarios.child(usuarioActual.uid) : null;
+            if (refUsuario) {
+                refUsuario.on('value', (snapshot) => {
+                    const data = snapshot.val();
+                    if (data) {
+                        usuariosAlmacen = { [usuarioActual.uid]: data };
+                        actualizarTablaUsuarios();
+                    }
+                });
+            }
+        }
+    }
+}
+
+// ==========================================================================
+// ACTUALIZAR TABLA DE USUARIOS (Botones arreglados aquí)
+// ==========================================================================
+
+function actualizarTablaUsuarios() {
+    const tbody = document.getElementById('cuerpoTablaUsuarios');
+    if (!tbody) return;
+
+    const entradas = Object.entries(usuariosAlmacen);
+    
+    if (entradas.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="6" class="text-center text-muted py-4">
+                    <i class="bi bi-people fs-3 d-block mb-2 text-danger"></i>
+                    No hay usuarios registrados en el sistema.
+                </td>
+            </tr>
+        `;
+        return;
+    }
+
+    let htmlFilas = "";
+    entradas.forEach(([uid, usuario]) => {
+        const esAdminPrincipal = usuario.email === USUARIO_ADMIN_PRINCIPAL;
+        const rolNombre = usuario.rol ? usuario.rol.charAt(0).toUpperCase() + usuario.rol.slice(1) : 'Sin rol';
+        const coloresRol = {
+            'admin': 'bg-dark',
+            'ventas': 'bg-primary',
+            'optometra': 'bg-info'
+        };
+        const rolBadge = coloresRol[usuario.rol] || 'bg-secondary';
+        const estadoBadge = usuario.activo !== false ? 'bg-success' : 'bg-danger';
+        const estadoTexto = usuario.activo !== false ? 'Activo' : 'Inactivo';
+
+        const badgeAdmin = esAdminPrincipal ? '<span class="badge bg-warning text-dark ms-1"><i class="bi bi-star-fill me-1"></i>Principal</span>' : '';
+
+        // NOTA: Aquí se llaman a las funciones directamente pasando el UID
+        htmlFilas += `
+            <tr class="item-usuario-fila" data-uid="${uid}">
+                <td>
+                    <strong class="nombre-usuario">${usuario.nombre || 'Sin nombre'}</strong>
+                    ${badgeAdmin}
+                </td>
+                <td><span class="email-usuario">${usuario.email || 'Sin correo'}</span></td>
+                <td><code class="text-primary fw-bold codigo-usuario">${usuario.codigo || 'N/A'}</code></td>
+                <td><span class="badge ${rolBadge} px-2.5 py-1.5 rol-usuario">${rolNombre}</span></td>
+                <td><span class="badge ${estadoBadge} bg-opacity-10 text-${usuario.activo !== false ? 'success' : 'danger'} px-2 py-1"><i class="bi bi-circle-fill me-1 small"></i> ${estadoTexto}</span></td>
+                <td class="text-end">
+                    <button class="btn btn-sm btn-outline-primary me-1" onclick="solicitarAutorizacionSeguridadUsuarios('editar', '${uid}')" title="Editar Usuario" style="border-radius: 6px;">
+                        <i class="bi bi-pencil-square"></i>
+                    </button>
+                    <button class="btn btn-sm ${usuario.activo !== false ? 'btn-outline-warning' : 'btn-outline-success'} me-1" onclick="solicitarAutorizacionSeguridadUsuarios('toggle', '${uid}')" title="${usuario.activo !== false ? 'Desactivar' : 'Activar'} Usuario" style="border-radius: 6px;">
+                        <i class="bi ${usuario.activo !== false ? 'bi-pause-circle' : 'bi-play-circle'}"></i>
+                    </button>
+                    <button class="btn btn-sm btn-outline-danger" onclick="solicitarAutorizacionSeguridadUsuarios('eliminar', '${uid}')" title="${esAdminPrincipal ? 'No se puede eliminar al administrador principal' : 'Eliminar Usuario'}" style="border-radius: 6px;" ${esAdminPrincipal ? 'disabled' : ''}>
+                        <i class="bi bi-trash"></i>
+                    </button>
+                </td>
+            </tr>
+        `;
+    });
+
+    tbody.innerHTML = htmlFilas;
+}
+
+// ==========================================================================
+// FILTRADO DE USUARIOS
+// ==========================================================================
+
+function filtrarUsuarios() {
+    const termino = document.getElementById('buscarUsuario')?.value.toLowerCase().trim() || '';
+    const rolFiltro = document.getElementById('filtroRolUsuario')?.value || '';
+    const filas = document.querySelectorAll('#cuerpoTablaUsuarios tr.item-usuario-fila');
+    let cont = 0;
+
+    filas.forEach(fila => {
+        const nombre = fila.querySelector('.nombre-usuario')?.innerText.toLowerCase() || '';
+        const email = fila.querySelector('.email-usuario')?.innerText.toLowerCase() || '';
+        const codigo = fila.querySelector('.codigo-usuario')?.innerText.toLowerCase() || '';
+        const rol = fila.querySelector('.rol-usuario')?.innerText.toLowerCase() || '';
+
+        const coincideTexto = nombre.includes(termino) || email.includes(termino) || codigo.includes(termino);
+        const coincideRol = !rolFiltro || rol === rolFiltro;
+
+        if (coincideTexto && coincideRol) {
+            fila.classList.remove('d-none');
+            cont++;
+        } else {
+            fila.classList.add('d-none');
+        }
+    });
 }
 
 // ==========================================================================
@@ -382,7 +531,6 @@ function cerrarModalPorId(idModal) {
 
 window.cerrarModalUsuario = function() { cerrarModalPorId('modalUsuarioForm'); };
 window.cerrarModalRoles = function() { cerrarModalPorId('modalRoles'); };
-window.cerrarModalSeguridadUsuarios = function() { cerrarModalPorId('modalSeguridadUsuarios'); };
 window.abrirModalRoles = function() {
     renderizarListaRolesUI();
     abrirModalPorId('modalRoles');
@@ -523,161 +671,17 @@ function actualizarSelectoresRoles() {
 }
 
 // ==========================================================================
-// SINCRONIZACIÓN EN TIEMPO REAL CON FIREBASE
-// ==========================================================================
-
-function escucharUsuariosEnTiempoReal() {
-    const refUsuarios = obtenerReferenciaUsuarios();
-    if (!refUsuarios) {
-        const tbody = document.getElementById('cuerpoTablaUsuarios');
-        if (tbody) {
-            tbody.innerHTML = `
-                <tr>
-                    <td colspan="6" class="text-center text-danger py-4">
-                        <i class="bi bi-exclamation-triangle fs-3 d-block mb-2"></i>
-                        No se pudo conectar con Firebase.
-                    </td>
-                </tr>
-            `;
-        }
-        return;
-    }
-
-    refUsuarios.on('value', (snapshot) => {
-        usuariosAlmacen = snapshot.val() || {};
-        actualizarTablaUsuarios();
-    }, (error) => {
-        console.error("Error leyendo usuarios:", error);
-        mostrarAlertaUsuarios("Error al leer los datos de usuarios.", "danger");
-    });
-}
-
-function actualizarTablaUsuarios() {
-    const tbody = document.getElementById('cuerpoTablaUsuarios');
-    if (!tbody) return;
-
-    const entradas = Object.entries(usuariosAlmacen);
-    
-    if (entradas.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="6" class="text-center text-muted py-4">
-                    <i class="bi bi-people fs-3 d-block mb-2 text-danger"></i>
-                    No hay usuarios registrados en el sistema.
-                </td>
-            </tr>
-        `;
-        return;
-    }
-
-    let htmlFilas = "";
-    entradas.forEach(([uid, usuario]) => {
-        const esAdminPrincipal = usuario.email === USUARIO_ADMIN_PRINCIPAL;
-        const rolNombre = usuario.rol ? usuario.rol.charAt(0).toUpperCase() + usuario.rol.slice(1) : 'Sin rol';
-        const coloresRol = {
-            'admin': 'bg-dark',
-            'ventas': 'bg-primary',
-            'optometra': 'bg-info'
-        };
-        const rolBadge = coloresRol[usuario.rol] || 'bg-secondary';
-        const estadoBadge = usuario.activo !== false ? 'bg-success' : 'bg-danger';
-        const estadoTexto = usuario.activo !== false ? 'Activo' : 'Inactivo';
-
-        const badgeAdmin = esAdminPrincipal ? '<span class="badge bg-warning text-dark ms-1"><i class="bi bi-star-fill me-1"></i>Principal</span>' : '';
-
-        htmlFilas += `
-            <tr class="item-usuario-fila" data-uid="${uid}">
-                <td>
-                    <strong class="nombre-usuario">${usuario.nombre || 'Sin nombre'}</strong>
-                    ${badgeAdmin}
-                </td>
-                <td><span class="email-usuario">${usuario.email || 'Sin correo'}</span></td>
-                <td><code class="text-primary fw-bold codigo-usuario">${usuario.codigo || 'N/A'}</code></td>
-                <td><span class="badge ${rolBadge} px-2.5 py-1.5 rol-usuario">${rolNombre}</span></td>
-                <td><span class="badge ${estadoBadge} bg-opacity-10 text-${usuario.activo !== false ? 'success' : 'danger'} px-2 py-1"><i class="bi bi-circle-fill me-1 small"></i> ${estadoTexto}</span></td>
-                <td class="text-end">
-                    <button class="btn btn-sm btn-outline-primary me-1" onclick="solicitarAutorizacionSeguridadUsuarios('editar', '${uid}')" title="Editar Usuario" style="border-radius: 6px;">
-                        <i class="bi bi-pencil-square"></i>
-                    </button>
-                    <button class="btn btn-sm ${usuario.activo !== false ? 'btn-outline-warning' : 'btn-outline-success'} me-1" onclick="solicitarAutorizacionSeguridadUsuarios('toggle', '${uid}')" title="${usuario.activo !== false ? 'Desactivar' : 'Activar'} Usuario" style="border-radius: 6px;">
-                        <i class="bi ${usuario.activo !== false ? 'bi-pause-circle' : 'bi-play-circle'}"></i>
-                    </button>
-                    <button class="btn btn-sm btn-outline-danger" onclick="solicitarAutorizacionSeguridadUsuarios('eliminar', '${uid}')" title="${esAdminPrincipal ? 'No se puede eliminar al administrador principal' : 'Eliminar Usuario'}" style="border-radius: 6px;" ${esAdminPrincipal ? 'disabled' : ''}>
-                        <i class="bi bi-trash"></i>
-                    </button>
-                </td>
-            </tr>
-        `;
-    });
-
-    tbody.innerHTML = htmlFilas;
-}
-
-// ==========================================================================
-// FILTRADO DE USUARIOS
-// ==========================================================================
-
-function filtrarUsuarios() {
-    const termino = document.getElementById('buscarUsuario')?.value.toLowerCase().trim() || '';
-    const rolFiltro = document.getElementById('filtroRolUsuario')?.value || '';
-    const filas = document.querySelectorAll('#cuerpoTablaUsuarios tr.item-usuario-fila');
-    let cont = 0;
-
-    filas.forEach(fila => {
-        const nombre = fila.querySelector('.nombre-usuario')?.innerText.toLowerCase() || '';
-        const email = fila.querySelector('.email-usuario')?.innerText.toLowerCase() || '';
-        const codigo = fila.querySelector('.codigo-usuario')?.innerText.toLowerCase() || '';
-        const rol = fila.querySelector('.rol-usuario')?.innerText.toLowerCase() || '';
-
-        const coincideTexto = nombre.includes(termino) || email.includes(termino) || codigo.includes(termino);
-        const coincideRol = !rolFiltro || rol === rolFiltro;
-
-        if (coincideTexto && coincideRol) {
-            fila.classList.remove('d-none');
-            cont++;
-        } else {
-            fila.classList.add('d-none');
-        }
-    });
-}
-
-// ==========================================================================
 // LÓGICA DE FORMULARIOS
 // ==========================================================================
 
 function inicializarLogicaUsuarios() {
     const formUsuario = document.getElementById('formFichaUsuario');
-    const formSeguridad = document.getElementById('formConfirmarSeguridadUsuarios');
     const formRol = document.getElementById('formRol');
 
     if (formUsuario) {
         formUsuario.addEventListener('submit', function (e) {
             e.preventDefault();
             guardarUsuario();
-        });
-    }
-
-    if (formSeguridad) {
-        formSeguridad.addEventListener('submit', function (e) {
-            e.preventDefault();
-            const passField = document.getElementById('passSeguridadUsuarios');
-
-            if (passField.value === CLAVE_SEGURIDAD_USUARIOS) {
-                cerrarModalSeguridadUsuarios();
-                passField.value = "";
-
-                if (accionSeguridadPendienteUsuarios) {
-                    const { tipo, key } = accionSeguridadPendienteUsuarios;
-                    accionSeguridadPendienteUsuarios = null;
-
-                    if (tipo === 'editar') ejecutarEdicionUsuario(key);
-                    else if (tipo === 'eliminar') ejecutarEliminacionUsuario(key);
-                    else if (tipo === 'toggle') ejecutarToggleUsuario(key);
-                }
-            } else {
-                mostrarAlertaUsuarios("Clave de seguridad incorrecta.", "danger");
-                passField.value = "";
-            }
         });
     }
 
@@ -721,7 +725,7 @@ function inicializarLogicaUsuarios() {
 }
 
 // ==========================================================================
-// GUARDAR USUARIO
+// GUARDAR USUARIO (Crear en Firebase Auth + Guardar en Realtime DB)
 // ==========================================================================
 
 function guardarUsuario() {
@@ -759,9 +763,11 @@ function guardarUsuario() {
         email: email,
         codigo: codigo,
         rol: rol,
+        activo: true,
         actualizadoEn: new Date().toISOString()
     };
 
+    // --- MODO EDICIÓN ---
     if (uidOriginal) {
         const usuarioExistente = usuariosAlmacen[uidOriginal];
         if (usuarioExistente && usuarioExistente.email === USUARIO_ADMIN_PRINCIPAL) {
@@ -770,6 +776,7 @@ function guardarUsuario() {
             return;
         }
 
+        // Actualizar solo en Realtime DB (no se puede cambiar email en Auth desde cliente)
         refUsuarios.child(uidOriginal).update(datosUsuario)
             .then(() => {
                 mostrarAlertaUsuarios(`Usuario <strong>${nombre}</strong> actualizado exitosamente.`, "success");
@@ -781,62 +788,52 @@ function guardarUsuario() {
                 mostrarAlertaUsuarios("Error al actualizar el usuario.", "danger");
             })
             .finally(() => { btnGuardar.disabled = false; });
-    } else {
-        if (!password || password.length < 6) {
-            mostrarAlertaUsuarios("La contraseña debe tener al menos 6 caracteres.", "warning");
-            btnGuardar.disabled = false;
-            return;
-        }
-        if (password !== passwordConfirm) {
-            mostrarAlertaUsuarios("Las contraseñas no coinciden.", "warning");
-            btnGuardar.disabled = false;
-            return;
-        }
-
-        const emailExiste = Object.values(usuariosAlmacen).some(u => u.email === email);
-        if (emailExiste) {
-            mostrarAlertaUsuarios("El correo electrónico ya está registrado.", "danger");
-            btnGuardar.disabled = false;
-            return;
-        }
-
-        const codigoExiste = Object.values(usuariosAlmacen).some(u => u.codigo === codigo);
-        if (codigoExiste) {
-            mostrarAlertaUsuarios("El código de acceso ya está en uso.", "danger");
-            btnGuardar.disabled = false;
-            return;
-        }
-
-        auth.createUserWithEmailAndPassword(email, password)
-            .then((userCredential) => {
-                const uid = userCredential.user.uid;
-                datosUsuario.creadoEn = new Date().toISOString();
-                datosUsuario.activo = true;
-                datosUsuario.uid = uid;
-                return refUsuarios.child(uid).set(datosUsuario);
-            })
-            .then(() => {
-                mostrarAlertaUsuarios(
-                    `<i class="bi bi-check-circle-fill me-2"></i> Usuario <strong>${nombre}</strong> registrado exitosamente.`,
-                    "success"
-                );
-                document.getElementById('formFichaUsuario').reset();
-                cerrarModalUsuario();
-            })
-            .catch((error) => {
-                console.error("Error al registrar usuario:", error);
-                let mensaje = "Error al registrar el usuario.";
-                if (error.code === 'auth/email-already-in-use') {
-                    mensaje = "El correo electrónico ya está registrado en Firebase Authentication.";
-                } else if (error.code === 'auth/weak-password') {
-                    mensaje = "La contraseña es demasiado débil. Usa al menos 6 caracteres.";
-                } else if (error.code === 'auth/invalid-email') {
-                    mensaje = "El formato del correo electrónico no es válido.";
-                }
-                mostrarAlertaUsuarios(mensaje, "danger");
-            })
-            .finally(() => { btnGuardar.disabled = false; });
+        return;
     }
+
+    // --- MODO CREACIÓN ---
+    if (!password || password.length < 6) {
+        mostrarAlertaUsuarios("La contraseña debe tener al menos 6 caracteres.", "warning");
+        btnGuardar.disabled = false;
+        return;
+    }
+    if (password !== passwordConfirm) {
+        mostrarAlertaUsuarios("Las contraseñas no coinciden.", "warning");
+        btnGuardar.disabled = false;
+        return;
+    }
+
+    // Crear usuario en Firebase Auth
+    auth.createUserWithEmailAndPassword(email, password)
+        .then((userCredential) => {
+            const uid = userCredential.user.uid;
+            datosUsuario.creadoEn = new Date().toISOString();
+            datosUsuario.uid = uid;
+            
+            // Guardar datos adicionales en Realtime DB
+            return refUsuarios.child(uid).set(datosUsuario);
+        })
+        .then(() => {
+            mostrarAlertaUsuarios(
+                `<i class="bi bi-check-circle-fill me-2"></i> Usuario <strong>${nombre}</strong> registrado exitosamente.`,
+                "success"
+            );
+            document.getElementById('formFichaUsuario').reset();
+            cerrarModalUsuario();
+        })
+        .catch((error) => {
+            console.error("Error al registrar usuario:", error);
+            let mensaje = "Error al registrar el usuario.";
+            if (error.code === 'auth/email-already-in-use') {
+                mensaje = "El correo electrónico ya está registrado en Firebase Authentication.";
+            } else if (error.code === 'auth/weak-password') {
+                mensaje = "La contraseña es demasiado débil. Usa al menos 6 caracteres.";
+            } else if (error.code === 'auth/invalid-email') {
+                mensaje = "El formato del correo electrónico no es válido.";
+            }
+            mostrarAlertaUsuarios(mensaje, "danger");
+        })
+        .finally(() => { btnGuardar.disabled = false; });
 }
 
 // ==========================================================================
@@ -865,17 +862,41 @@ window.prepararFormularioUsuarioNuevo = function () {
 };
 
 // ==========================================================================
-// AUTORIZACIÓN DE SEGURIDAD PARA ACCIONES
+// AUTORIZACIÓN DE SEGURIDAD PARA ACCIONES (NUEVO FLUJO CORREGIDO)
 // ==========================================================================
 
-window.solicitarAutorizacionSeguridadUsuarios = function (tipo, key) {
-    accionSeguridadPendienteUsuarios = { tipo, key };
-    document.getElementById('passSeguridadUsuarios').value = "";
-    abrirModalPorId('modalSeguridadUsuarios');
+window.solicitarAutorizacionSeguridadUsuarios = function (tipo, uid) {
+    // Guardamos la acción pendiente en el objeto global
+    accionSeguridadPendienteUsuarios = { 
+        tipo: tipo, 
+        uid: uid 
+    };
+
+    // Limpiamos y abrimos el modal
+    const passInput = document.getElementById('passSeguridadUsuarios');
+    if(passInput) passInput.value = "";
+    
+    // En lugar de usar el modal estático, usamos el dinámico que tiene el callback
+    mostrarModalConfirmacionSeguridad(
+        'Autorización Requerida',
+        `Debes ingresar la clave de seguridad para realizar esta acción.`,
+        function() {
+            // Este callback se ejecuta cuando la clave es correcta
+            if (accionSeguridadPendienteUsuarios) {
+                const { tipo, uid } = accionSeguridadPendienteUsuarios;
+                accionSeguridadPendienteUsuarios = null; // Limpiamos la variable global
+
+                // Ejecutamos la acción correspondiente
+                if (tipo === 'editar') ejecutarEdicionUsuario(uid);
+                else if (tipo === 'eliminar') ejecutarEliminacionUsuario(uid);
+                else if (tipo === 'toggle') ejecutarToggleUsuario(uid);
+            }
+        }
+    );
 };
 
 // ==========================================================================
-// EJECUTAR EDICIÓN DE USUARIO
+// EJECUTAR EDICIÓN DE USUARIO (CAMBIOS PARA BLOQUEAR EL CÓDIGO)
 // ==========================================================================
 
 function ejecutarEdicionUsuario(uid) {
@@ -897,6 +918,9 @@ function ejecutarEdicionUsuario(uid) {
     document.getElementById('usuPassword').required = false;
     document.getElementById('usuPasswordConfirm').required = false;
 
+    // *** CAMBIO IMPORTANTE: BLOQUEAMOS EL CÓDIGO EN MODO EDICIÓN PARA EVITAR DUPLICADOS ***
+    document.getElementById('usuCodigo').disabled = true; 
+
     document.getElementById('tituloModalUsuario').innerHTML = `<i class="bi bi-pencil-square text-success me-2"></i>Modificar Usuario`;
     document.getElementById('btnGuardarUsuario').className = "btn btn-success py-2 fw-semibold";
     document.getElementById('btnGuardarUsuario').innerHTML = `<i class="bi bi-save me-1"></i>Guardar Cambios`;
@@ -906,14 +930,15 @@ function ejecutarEdicionUsuario(uid) {
 };
 
 // ==========================================================================
-// EJECUTAR ELIMINACIÓN DE USUARIO
+// EJECUTAR ELIMINACIÓN DE USUARIO (Auth + Realtime DB)
 // ==========================================================================
 
 function ejecutarEliminacionUsuario(uid) {
     const refUsuarios = obtenerReferenciaUsuarios();
+    const auth = obtenerAuth();
     const usuario = usuariosAlmacen[uid];
     
-    if (!refUsuarios || !usuario) return;
+    if (!refUsuarios || !usuario || !auth) return;
 
     if (usuario.email === USUARIO_ADMIN_PRINCIPAL) {
         mostrarAlertaUsuarios(
@@ -929,20 +954,15 @@ function ejecutarEliminacionUsuario(uid) {
         return;
     }
 
-    mostrarModalConfirmacionSeguridad(
-        'Eliminar Usuario',
-        `¿Estás seguro de eliminar al usuario <strong>"${usuario.nombre}"</strong> (${usuario.email})?<br><small class="text-muted">Esta acción eliminará el usuario de la base de datos.</small>`,
-        function() {
-            refUsuarios.child(uid).remove()
-                .then(() => {
-                    mostrarAlertaUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> eliminado del sistema.`, "danger");
-                })
-                .catch((error) => {
-                    console.error("Error al eliminar usuario:", error);
-                    mostrarAlertaUsuarios("No se pudo eliminar el usuario.", "danger");
-                });
-        }
-    );
+    // Eliminar de Realtime DB (Nota: Para Auth necesitas Admin SDK en el backend)
+    refUsuarios.child(uid).remove()
+        .then(() => {
+            mostrarAlertaUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> eliminado del sistema.`, "danger");
+        })
+        .catch((error) => {
+            console.error("Error al eliminar usuario:", error);
+            mostrarAlertaUsuarios("No se pudo eliminar el usuario.", "danger");
+        });
 }
 
 // ==========================================================================
@@ -970,23 +990,43 @@ function ejecutarToggleUsuario(uid) {
 
     const nuevoEstado = usuario.activo === false ? true : false;
     const estadoTexto = nuevoEstado ? 'activado' : 'desactivado';
-    const accion = nuevoEstado ? 'Activar' : 'Desactivar';
 
-    mostrarModalConfirmacionSeguridad(
-        `${accion} Usuario`,
-        `¿Estás seguro de ${estadoTexto} al usuario <strong>"${usuario.nombre}"</strong> (${usuario.email})?`,
-        function() {
-            refUsuarios.child(uid).update({
-                activo: nuevoEstado,
-                actualizadoEn: new Date().toISOString()
-            })
-            .then(() => {
-                mostrarAlertaUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> ${estadoTexto} exitosamente.`, "success");
-            })
-            .catch((error) => {
-                console.error("Error al cambiar estado del usuario:", error);
-                mostrarAlertaUsuarios("No se pudo cambiar el estado del usuario.", "danger");
-            });
-        }
-    );
+    refUsuarios.child(uid).update({
+        activo: nuevoEstado,
+        actualizadoEn: new Date().toISOString()
+    })
+    .then(() => {
+        mostrarAlertaUsuarios(`Usuario <strong>"${usuario.nombre}"</strong> ${estadoTexto} exitosamente.`, "success");
+    })
+    .catch((error) => {
+        console.error("Error al cambiar estado del usuario:", error);
+        mostrarAlertaUsuarios("No se pudo cambiar el estado del usuario.", "danger");
+    });
+}
+
+// ==========================================================================
+// FUNCIÓN PARA SINCRONIZAR USUARIO ACTUAL (al hacer login) - ¡CORREGIDA!
+// ==========================================================================
+
+function sincronizarUsuarioActualConAuth() {
+    const auth = obtenerAuth();
+    const refUsuarios = obtenerReferenciaUsuarios();
+    
+    if (!auth || !refUsuarios) return;
+    
+    const usuario = auth.currentUser;
+    if (!usuario) return;
+    
+    refUsuarios.child(usuario.uid).once('value')
+        .then((snapshot) => {
+            if (!snapshot.exists()) {
+                // *** CAMBIO CRUCIAL: Ya NO creamos usuarios automáticos ***
+                console.warn(`AVISO: El usuario ${usuario.email} tiene cuenta de login pero no tiene ficha en la base de datos. Créelo manualmente.`);
+            } else {
+                cargarUsuariosDesdeAuthYRoles();
+            }
+        })
+        .catch((error) => {
+            console.error("Error al sincronizar usuario:", error);
+        });
 }
